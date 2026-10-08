@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hieroglyph Chatbot</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#29261f;background:#f5f1e8}body{margin:0;padding:24px 14px}main{max-width:760px;margin:auto}h1{margin:0;font-size:1.65rem}.hint,.small{color:#635b4b}.hint{margin:6px 0 16px}.small{font-size:.88rem}#chat{min-height:300px;max-height:55vh;overflow-y:auto;background:#fff;border:1px solid #d5ccba;border-radius:14px;padding:14px}.bubble{max-width:86%;margin:10px 0;padding:10px 12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;background:#f2eee4}.user{margin-left:auto;background:#dceeed}.result{border-left:4px solid #2f5d58;background:#edf6f3}.image{display:block;max-width:100%;max-height:330px;object-fit:contain;border-radius:8px;margin-top:8px}.symbols{margin:8px 0 0;padding-left:20px}.composer{margin-top:14px;background:#fff;border:1px solid #d5ccba;border-radius:14px;padding:12px}textarea,input,button{font:inherit;box-sizing:border-box;border-radius:8px}textarea,input{width:100%;border:1px solid #bdb29d;padding:10px}textarea{resize:vertical;min-height:72px}.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}button,.file-button{cursor:pointer;border:0;padding:9px 12px;background:#315b55;color:#fff}button.secondary,.file-button{background:#766247}button.audio{background:#704c2a;margin-top:8px}button:disabled{opacity:.55;cursor:wait}#codes{margin-top:8px}#status{min-height:20px;margin:9px 2px 0;color:#7a352f}#image{display:none}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Hieroglyph Chatbot</h1>
+  <p class="hint">Ask in English or Arabic. Attach an image, or paste one into the message box with <strong>Ctrl+V</strong>.</p>
+  <section id="chat" aria-live="polite" aria-label="Conversation"></section>
+  <form id="form" class="composer">
+    <textarea id="message" dir="auto" maxlength="2000" placeholder="Ask a question, or paste an image with Ctrl+V"></textarea>
+    <input id="codes" maxlength="250" placeholder="Optional Gardiner codes: A1, S34">
+    <input id="image" type="file" accept="image/jpeg,image/png,image/webp">
+    <div class="row">
+      <label class="file-button" for="image">Attach image</label>
+      <button id="send" type="submit">Send</button>
+      <button id="clear" class="secondary" type="button">New chat</button>
+    </div>
+    <p class="small">JPG, PNG, or WebP; maximum 10 MB. Symbol labels are not reading order.</p>
+  </form>
+  <p id="status" role="status"></p>
+</main>
+<script>
+const history=[],chat=document.querySelector('#chat'),message=document.querySelector('#message'),codesInput=document.querySelector('#codes'),imageInput=document.querySelector('#image'),send=document.querySelector('#send'),clear=document.querySelector('#clear'),status=document.querySelector('#status');
+let detectedCodes=[],imageContext='';
+function bubble(kind,text){const item=document.createElement('div');item.className='bubble '+kind;item.dir='auto';item.textContent=text;chat.append(item);chat.scrollTop=chat.scrollHeight;return item}
+function setBusy(value,text=''){send.disabled=clear.disabled=value;status.textContent=text}
+function codes(){return [...new Set(codesInput.value.split(',').map(x=>x.trim()).filter(Boolean).concat(detectedCodes))].slice(0,6)}
+function audio(text,target){const button=document.createElement('button');button.className='audio';button.textContent='▶ Play audio';button.onclick=async()=>{button.disabled=true;try{const response=await fetch('/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}),data=await response.json();if(!response.ok)throw Error(data.detail||'Audio could not be created.');await new Audio('data:audio/wav;base64,'+data.audio).play()}catch(error){status.textContent=error.message}finally{button.disabled=false}};target.append(document.createElement('br'),button)}
+async function ask(question,showUser=true){if(showUser)bubble('user',question);setBusy(true,'Thinking…');try{const response=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:question,history:history.slice(-10),glyph_codes:codes(),image_context:imageContext})}),data=await response.json();if(!response.ok)throw Error(data.detail||'Chat request failed.');const reply=bubble('assistant',data.response);audio(data.response,reply);history.push({role:'user',content:question},{role:'assistant',content:data.response.slice(0,2000)});history.splice(0,Math.max(0,history.length-10));status.textContent=data.context_keys.length?'Local descriptions: '+data.context_keys.join(', '):'No matching local description was supplied.'}catch(error){status.textContent=error.message}finally{send.disabled=clear.disabled=false}}
+function valid(file){if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024){status.textContent='Use a JPG, PNG, or WebP image up to 10 MB.';return false}return true}
+async function processImage(file,source){if(!valid(file))return;const preview=bubble('user',source+': '+(file.name||'pasted image')),original=document.createElement('img');original.className='image';original.src=URL.createObjectURL(file);preview.append(original);const result=bubble('assistant result','Detecting symbols…');setBusy(true,'Detecting symbols…');try{const form=new FormData();form.append('file',file,file.name||'pasted-image.png');const response=await fetch('/detect',{method:'POST',body:form}),data=await response.json();if(!response.ok)throw Error(data.detail||'Detection failed.');result.replaceChildren();if(data.annotated_image){result.append('Detection result:');const annotated=document.createElement('img');annotated.className='image';annotated.src='data:image/jpeg;base64,'+data.annotated_image;result.append(annotated)}if(!data.is_hieroglyph)result.append('\nNo hieroglyphs were found by image screening.');else if(!data.detections.length)result.append('\nNo detector boxes were returned.');else{detectedCodes=data.detections.map(x=>x.code);imageContext=data.detections.map(x=>x.label+': '+x.code+' (confidence '+x.confidence.toFixed(2)+(x.uncertain?', uncertain':'')+')').join('; ');const list=document.createElement('ul');list.className='symbols';data.detections.forEach(x=>{const entry=document.createElement('li');entry.textContent=x.label+' — '+x.code+' — '+Math.round(x.confidence*100)+'%'+(x.story?'':' — no local description')+(x.uncertain?' — uncertain':'');list.append(entry)});result.append(list,'\nSymbol labels are not inscription reading order.');await ask('Explain the detected symbols in this image. Use the Symbol labels when useful.',false)}data.warnings.forEach(warning=>bubble('assistant',warning))}catch(error){result.textContent=error.message;status.textContent=error.message}finally{send.disabled=clear.disabled=false;chat.scrollTop=chat.scrollHeight}}
+document.querySelector('#form').onsubmit=event=>{event.preventDefault();const question=message.value.trim();if(question){message.value='';ask(question)}};
+imageInput.onchange=()=>processImage(imageInput.files[0],'Attached image');
+message.onpaste=event=>{const image=[...event.clipboardData.files].find(file=>file.type.startsWith('image/'));if(image){event.preventDefault();processImage(image,'Pasted image')}};
+clear.onclick=()=>{history.length=0;detectedCodes=[];imageContext='';chat.replaceChildren();status.textContent='';imageInput.value='';codesInput.value='';message.value=''};
+</script>
+</body>
+</html>

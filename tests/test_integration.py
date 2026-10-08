@@ -3,7 +3,7 @@ import base64
 
 import app
 from chatbot import KnowledgeBase, Settings, create_chat_router
-from chatbot.vision import checkpoint_class_names
+from vision import checkpoint_class_names
 
 
 def test_health_and_real_story_lookup():

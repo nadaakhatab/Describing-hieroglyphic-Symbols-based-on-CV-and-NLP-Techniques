@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import asyncio
-import io
 import json
 import os
 import re
@@ -20,14 +19,13 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from chatbot import chat_demo_html, create_chat_router
-from chatbot.knowledge import KnowledgeBase
-from chatbot.schemas import SpeakRequest
-from chatbot.speech import SpeechError, synthesize_wav
-from chatbot.vision import HieroglyphDetector, ImageValidationError, VisionError
+from chatbot import KnowledgeBase, SpeakRequest, create_chat_router
+from speech import SpeechError, synthesize_wav
+from vision import HieroglyphDetector, ImageValidationError, VisionError
 
 ROOT = Path(__file__).resolve().parent
 STORY_PATH = ROOT / "data" / "Semantic meaning.json"
+CHAT_PAGE = ROOT / "templates" / "chat.html"
 
 app = FastAPI(title="Hieroglyph Assistant")
 
@@ -89,7 +87,7 @@ def detector() -> HieroglyphDetector:
 
 @app.get("/", include_in_schema=False)
 async def demo() -> HTMLResponse:
-    return HTMLResponse(chat_demo_html())
+    return HTMLResponse(CHAT_PAGE.read_text(encoding="utf-8"))
 
 
 @app.get("/health")
