@@ -78,7 +78,23 @@ Use these tests after the server is running and your Groq key is configured:
 | `𓀀` | `Tell me more about this sign.` | The same local record as A1. |
 | `ZZ999` | `What does this code mean?` | A clear message that no local description was found. |
 
-The chatbot does not read an image by itself. Enter a known Gardiner code or Unicode symbol in the **Glyph codes** box. The image detector currently returns an annotated image, not a list of codes.
+You can enter a known Gardiner code or Unicode symbol in the **Glyph codes** box, or upload an image. For uploads, the detector returns labelled Gardiner codes, confidence scores, bounding boxes in the annotated image, and any matching local descriptions. Manual codes remain useful when you already know the symbol or want to correct an uncertain detection.
+
+## Upload an image in the chat
+
+Use the **Upload a hieroglyph image** button. The chat accepts JPG, PNG, and WebP images up to 10 MB.
+
+After upload, the app:
+
+1. Screens the image for hieroglyph content.
+2. Runs the trained YOLO detector when the screen passes.
+3. Shows an annotated image and labels such as `Symbol 1: A1` with confidence scores.
+4. Sends verified detector codes and matching local descriptions to the chatbot.
+5. Keeps these symbol labels for later questions such as “What does Symbol 2 mean?”
+
+The symbol numbers are labels for the screen only. They do **not** claim the reading order of an Ancient Egyptian inscription. A detected code can also have no local description; the interface reports this clearly.
+
+Each chatbot answer has a **Play audio** button. It reads the generated answer with the local Kokoro speech service. First use may download public speech-model files and can take longer.
 
 ## Important notes
 

@@ -4,3 +4,13 @@ httpx>=0.27,<1
 python-dotenv>=1,<2
 pydantic>=2.9,<3
 python-multipart>=0.0.9,<1
+# Optional packages used by image detection and text-to-speech endpoints.
+torch
+torchvision
+ultralytics==8.3.150
+pillow
+opencv-python
+soundfile
+kokoro
+googletrans==4.0.2
+git+https://github.com/openai/CLIP.git

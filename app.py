@@ -7,6 +7,7 @@ keeps the local chatbot available even on a machine without GPU-model packages.
 from __future__ import annotations
 
 import base64
+import asyncio
 import io
 import json
 import os
@@ -16,16 +17,19 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from chatbot import chat_demo_html, create_chat_router
+from chatbot.knowledge import KnowledgeBase
+from chatbot.schemas import SpeakRequest
+from chatbot.speech import SpeechError, synthesize_wav
+from chatbot.vision import HieroglyphDetector, ImageValidationError, VisionError
 
 ROOT = Path(__file__).resolve().parent
 STORY_PATH = ROOT / "data" / "Semantic meaning.json"
 
 app = FastAPI(title="Hieroglyph Assistant")
-app.include_router(create_chat_router())
 
 
 def load_stories() -> dict[str, dict[str, str]]:
@@ -40,6 +44,8 @@ def load_stories() -> dict[str, dict[str, str]]:
 
 
 STORIES = load_stories()
+KNOWLEDGE = KnowledgeBase.load(STORY_PATH)
+app.include_router(create_chat_router(knowledge=KNOWLEDGE))
 
 
 class QueryRequest(BaseModel):
@@ -69,35 +75,16 @@ class HieroglyphStoryReader:
         if not story:
             return None, ""
         try:
-            import soundfile as sf
-            from kokoro import KPipeline
-
-            pipeline = KPipeline(lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M")
-            audio_data = None
-            for output in pipeline(self.clean_text(story), voice="af_heart"):
-                if isinstance(output, tuple) and len(output) >= 3:
-                    audio_data = output[2]
-            if audio_data is None:
-                raise RuntimeError("No audio data received from Kokoro.")
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                sf.write(temp_file.name, audio_data, 24000)
+                temp_file.write(synthesize_wav(story))
                 return temp_file.name, self.clean_text(story)
-        except ImportError as exc:
-            raise RuntimeError("Speech dependencies are not installed.") from exc
+        except SpeechError as exc:
+            raise RuntimeError(str(exc)) from exc
 
 
 @lru_cache(maxsize=1)
-def load_vision_models():
-    """Load CLIP and YOLO once, only when image detection is requested."""
-    try:
-        import clip
-        import torch
-        from ultralytics import YOLO
-    except ImportError as exc:
-        raise RuntimeError("Detection dependencies are not installed.") from exc
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, preprocess = clip.load("ViT-B/32", device=device)
-    return torch, clip, device, model, preprocess, YOLO(str(ROOT / "models" / "best.pt"))
+def detector() -> HieroglyphDetector:
+    return HieroglyphDetector(ROOT / "models" / "best.pt", KNOWLEDGE)
 
 
 @app.get("/", include_in_schema=False)
@@ -113,25 +100,13 @@ async def health() -> dict[str, object]:
 @app.post("/detect")
 async def detect_hieroglyphs(file: UploadFile = File(...)):
     try:
-        import cv2
-        import numpy as np
-        from PIL import Image
-
-        torch, clip, device, clip_model, preprocess, yolo_model = load_vision_models()
-        image = Image.open(io.BytesIO(await file.read())).convert("RGB").resize((640, 640))
-        image_input = preprocess(image).unsqueeze(0).to(device)
-        text_input = clip.tokenize(["ancient Egyptian hieroglyphs", "other content"]).to(device)
-        with torch.no_grad():
-            similarity = (clip_model.encode_image(image_input) @ clip_model.encode_text(text_input).T).softmax(dim=-1)
-        if similarity[0][0].item() <= 0.5:
-            return JSONResponse(content={"message": "No hieroglyph found"})
-        plotted = yolo_model.predict(np.array(image), imgsz=640)[0].plot()
-        output = Image.fromarray(cv2.cvtColor(plotted, cv2.COLOR_BGR2RGB))
-        buffer = io.BytesIO()
-        output.save(buffer, format="JPEG", quality=90)
-        buffer.seek(0)
-        return StreamingResponse(buffer, media_type="image/jpeg")
-    except RuntimeError as exc:
+        result = await asyncio.wait_for(asyncio.to_thread(detector().detect, await file.read(), file.content_type or ""), timeout=90)
+        return JSONResponse(content=result)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Detection timed out. Try a smaller image.") from exc
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except VisionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Could not process the image.") from exc
@@ -154,6 +129,17 @@ async def get_hieroglyph_story_audio(request: QueryRequest, background_tasks: Ba
     except HTTPException:
         raise
     except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/speak")
+async def speak_chat_answer(request: SpeakRequest):
+    try:
+        audio = await asyncio.wait_for(asyncio.to_thread(synthesize_wav, request.text), timeout=90)
+        return JSONResponse(content={"audio": base64.b64encode(audio).decode("ascii")})
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Speech generation timed out. Try a shorter answer.") from exc
+    except SpeechError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 

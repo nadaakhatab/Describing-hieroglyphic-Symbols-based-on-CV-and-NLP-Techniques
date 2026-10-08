@@ -48,11 +48,12 @@ def test_mocked_provider_and_route(knowledge):
         body = json.loads(request.content)
         final = json.loads(body["messages"][-1]["content"])
         assert final["local_descriptions"]["S34-𓋹"].startswith("The ankh")
+        assert final["image_context"] == "Symbol 1: S34"
         return httpx.Response(200, json={"choices": [{"message": {"content": "The ankh means life."}}]})
 
     async def run():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            return await ChatService(Settings("test-secret"), knowledge, client).reply(ChatRequest(message="What is S34?"))
+            return await ChatService(Settings("test-secret"), knowledge, client).reply(ChatRequest(message="What is S34?", image_context="Symbol 1: S34"))
 
     assert asyncio.run(run()).response == "The ankh means life."
     app = FastAPI()

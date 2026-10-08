@@ -16,6 +16,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     history: list[Turn] = Field(default_factory=list, max_length=10)
     glyph_codes: list[str] = Field(default_factory=list, max_length=6)
+    image_context: str = Field(default="", max_length=4000)
 
     @field_validator("glyph_codes")
     @classmethod
@@ -29,3 +30,7 @@ class ChatResponse(BaseModel):
     response: str
     context_keys: list[str] = Field(default_factory=list)
     knowledge_loaded: bool
+
+
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
