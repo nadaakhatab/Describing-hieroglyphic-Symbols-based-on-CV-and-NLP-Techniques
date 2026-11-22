@@ -12,7 +12,8 @@ LOCAL_DATA = ROOT / "data" / "semantic_meaning.json"
 RAG_DATA = Path(__file__).resolve().parent / "data"
 STOP = {
     "what", "does", "mean", "tell", "about", "this", "that", "with", "from",
-    "explain", "symbol", "glyph", "hieroglyph", "egyptian", "ancient",
+    "explain", "symbol", "glyph", "hieroglyph", "egyptian", "ancient", "who",
+    "was", "were", "is", "are", "the", "and", "how", "why", "when", "where",
 }
 
 

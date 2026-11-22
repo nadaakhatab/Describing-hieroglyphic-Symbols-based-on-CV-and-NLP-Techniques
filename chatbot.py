@@ -44,8 +44,9 @@ Key Principles:
    - Sign type (uniliteral phonogram, ideogram, or determinative)
    - Cultural, religious, and historical symbolism in Ancient Egypt
 5. LANGUAGE: Answer in the same language as the user's latest message. English question = English answer; Arabic question = Arabic answer. Do not translate the answer unless asked.
-6. STYLE: Be warm and natural. For greetings, greet the user briefly. For research questions, use a short answer followed by 3-5 clear bullets. Avoid repeated headings and do not add a section called 'What the evidence tells us' unless it helps.
-7. Always display relevant authentic hieroglyphic characters when they are known."""
+6. STYLE: Be warm and natural. For greetings, greet the user briefly. For research questions, use a short answer followed by 3-5 clear bullets. Avoid repeated headings, duplicate summaries, and long tables. Do not add a section called 'What the evidence tells us' unless it helps.
+7. ACCURACY: Do not add specific temples, symbols, titles, etymologies, or relationships unless the evidence supports them or you clearly label them as uncertain. Never turn a modern comparison into an ancient Egyptian fact.
+8. Always display relevant authentic hieroglyphic characters when they are known."""
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,25 @@ def follow_up_suggestions(question: str, language: str) -> list[str]:
     return ["Would you like to know more about its historical period?", "Would you like a comparison with another source or figure?"]
 
 
+def wikipedia_reference(question: str, language: str) -> dict | None:
+    """Return a useful reading link when a live summary cannot be fetched."""
+    title_map = {
+        "isis": "Isis", "إيزيس": "إيزيس", "ramesses": "Ramesses II",
+        "رمسيس": "رمسيس الثاني", "pyramid": "Egyptian pyramids", "الأهرام": "أهرامات مصر",
+        "osiris": "Osiris", "أوزيريس": "أوزيريس", "horus": "Horus", "حورس": "حورس",
+    }
+    title = next((value for key, value in title_map.items() if key in question.casefold()), "Ancient Egypt")
+    lang = "ar" if language == "Arabic" else "en"
+    url = f"https://{lang}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
+    return {
+        "id": f"wikipedia-reference-{lang}",
+        "text": "Live web summary was unavailable. This is a reference link for the general background answer.",
+        "source": f"Wikipedia ({lang}) reference",
+        "url": url,
+        "similarity": 0.60,
+    }
+
+
 class KnowledgeBase:
     """Validated local descriptions and conservative code-aware retrieval."""
 
@@ -264,6 +284,10 @@ class ChatService:
         language = response_language(request.message)
         if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
             rag_records.extend(await wikipedia_evidence(self.client, request.message, language))
+            if not any(record.get("source", "").startswith("Wikipedia") for record in rag_records):
+                reference = wikipedia_reference(request.message, language)
+                if reference:
+                    rag_records.append(reference)
         rag_packet = build_context(request.message, rag_records)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(turn.model_dump() for turn in request.history)
@@ -313,6 +337,9 @@ class ChatService:
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ChatError(502, "The AI service returned an invalid response.") from exc
         # Return both the answer and the evidence details needed by the UI.
+        web_citation = next((item for item in rag_packet["citations"] if "Wikipedia" in item["source"]), None)
+        if web_citation and not re.search(r"\[S\d+\]", answer):
+            answer = f"{answer.strip()}\n\nSource: [{web_citation['tag']}] {web_citation['source']}"
         return ChatResponse(
             response=answer.strip(),
             context_keys=list(context),
