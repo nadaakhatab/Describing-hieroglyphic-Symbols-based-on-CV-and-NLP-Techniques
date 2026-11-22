@@ -46,7 +46,8 @@ Key Principles:
 5. LANGUAGE: Answer in the same language as the user's latest message. English question = English answer; Arabic question = Arabic answer. Do not translate the answer unless asked.
 6. STYLE: Be warm and natural. For greetings, greet the user briefly. For research questions, use a short answer followed by 3-5 clear bullets. Avoid repeated headings, duplicate summaries, and long tables. Do not add a section called 'What the evidence tells us' unless it helps.
 7. ACCURACY: Do not add specific temples, symbols, titles, etymologies, or relationships unless the evidence supports them or you clearly label them as uncertain. Never turn a modern comparison into an ancient Egyptian fact.
-8. Always display relevant authentic hieroglyphic characters when they are known."""
+8. CONSISTENCY: Arabic and English versions of the same question must contain the same factual points. Translate the wording, not the evidence.
+9. Always display relevant authentic hieroglyphic characters when they are known."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,21 @@ def response_language(text: str) -> str:
     return "Arabic" if arabic > latin else "English"
 
 
+def canonical_research_query(question: str) -> str:
+    """Use one shared topic query so Arabic and English get the same evidence."""
+    aliases = {
+        "إيزيس": "Isis", "ايزيس": "Isis", "أوزيريس": "Osiris", "اوزيريس": "Osiris",
+        "حورس": "Horus", "رمسيس": "Ramesses II", "الأهرام": "Egyptian pyramids",
+        "الاهرام": "Egyptian pyramids", "رع": "Ra",
+    }
+    for arabic, english in aliases.items():
+        if arabic in question:
+            if english == "Egyptian pyramids":
+                return "How were the Egyptian pyramids built?"
+            return f"Who was {english}?"
+    return question
+
+
 def web_search_allowed(question: str) -> bool:
     """Allow simple research searches, but keep risky requests local and safe."""
     risky = ("medical", "diagnose", "weapon", "harm", "steal", "loot", "forge", "دواء", "سلاح", "سرقة")
@@ -134,7 +150,8 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
     """Find a short Wikipedia summary when the local evidence is not enough."""
     if not web_search_allowed(question):
         return []
-    lang = "ar" if language == "Arabic" else "en"
+    # English Wikipedia gives both language versions a shared evidence base.
+    lang = "en"
     search_url = f"https://{lang}.wikipedia.org/w/api.php"
     try:
         result = await client.get(
@@ -282,12 +299,13 @@ class ChatService:
         # Search the local knowledge base before asking Groq to write an answer.
         rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
         language = response_language(request.message)
+        research_question = canonical_research_query(request.message)
         if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
-            web_records = await wikipedia_evidence(self.client, request.message, language)
+            web_records = await wikipedia_evidence(self.client, research_question, language)
             # Weak local matches are noise for broad questions, so replace them.
             rag_records = web_records
             if not rag_records:
-                reference = wikipedia_reference(request.message, language)
+                reference = wikipedia_reference(research_question, language)
                 if reference:
                     rag_records.append(reference)
         rag_packet = build_context(request.message, rag_records)
@@ -305,6 +323,7 @@ class ChatService:
             "web_search_note": "Web summaries may be used for simple background questions. Cite them as Wikipedia and keep uncertainty clear.",
             "web_evidence_available": any(record.get("source", "").startswith("Wikipedia") for record in rag_records),
             "answer_policy": "Use local evidence, then Wikipedia evidence, then clearly labeled general knowledge for easy safe history questions.",
+            "consistency_policy": "Keep the same facts, names, relationships, dates, and uncertainty in every language; translate wording only.",
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
