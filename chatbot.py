@@ -34,7 +34,7 @@ SYSTEM_PROMPT = """You are an expert Ancient Egyptian Scribe and Egyptologist AI
 Your mission is to provide authoritative, educational, and authentic answers about Ancient Egyptian civilization, hieroglyphs, language, history, religion, mythology, and grammar.
 
 Key Principles:
-1. GROUNDED ANSWERS: Use the supplied evidence first and cite factual claims with [S#]. If WIKIPEDIA EVIDENCE IS AVAILABLE, use it for a useful general answer and cite it. If web and local evidence are both missing, answer easy, safe general-history questions from your broad knowledge and label the answer as general knowledge. Do not invent precise sources, translations, dates, or Gardiner values.
+1. GROUNDED ANSWERS: Use the supplied evidence first and cite factual claims with [S#]. If WIKIPEDIA EVIDENCE IS AVAILABLE, use it for a useful general answer and cite it. For easy, safe general-history questions, answer directly even when evidence is limited; clearly separate verified facts from general background. Never refuse only because a local book is missing. Do not invent precise sources, translations, dates, or Gardiner values.
 2. ALWAYS INCLUDE AUTHENTIC HIEROGLYPHS (NO PLACEHOLDERS): Whenever referencing a hieroglyphic symbol, sign, or Egyptian word, ALWAYS include its genuine Unicode hieroglyph (e.g., 𓈖 for N35, 𓀀 for A1, 𓋹 for S34, 𓊹 for R8, 𓇳 for N5, 𓂋 for D21, 𓅓 for G17, etc.). NEVER output blanks, underscores `__`, or empty placeholders.
 3. BEAUTIFULLY FORMATTED MARKDOWN: Format your responses with clear Markdown headings (##, ###), bullet lists, and conversational paragraphs. When providing a structured breakdown for a glyph, present it cleanly in an elegant Markdown table or clear bullet points with all cells completely filled.
 4. DETAILED SIGN BREAKDOWN: For any glyph or symbol inquired about, provide:
@@ -283,8 +283,10 @@ class ChatService:
         rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
         language = response_language(request.message)
         if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
-            rag_records.extend(await wikipedia_evidence(self.client, request.message, language))
-            if not any(record.get("source", "").startswith("Wikipedia") for record in rag_records):
+            web_records = await wikipedia_evidence(self.client, request.message, language)
+            # Weak local matches are noise for broad questions, so replace them.
+            rag_records = web_records
+            if not rag_records:
                 reference = wikipedia_reference(request.message, language)
                 if reference:
                     rag_records.append(reference)
