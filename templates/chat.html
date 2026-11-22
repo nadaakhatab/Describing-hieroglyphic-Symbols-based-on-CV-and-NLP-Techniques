@@ -2345,17 +2345,13 @@
         if (Array.isArray(data.sources) && data.sources.length) {
           const evidence = document.createElement('div');
           evidence.className = 'bubble-meta';
-          const confidence = data.retrieval_confidence == null
-            ? 'unavailable (reference link only)'
-            : `${Math.round(Number(data.retrieval_confidence) * 100)}%`;
           const sourceLines = data.sources.slice(0, 4).map((source) => {
-            const similarity = Math.round((Number(source.similarity || 0)) * 100);
             const label = source.source || source.id || 'Source';
             const url = source.url ? ` <a href="${source.url}" target="_blank" rel="noopener">↗</a>` : '';
-            const score = source.reference_only ? 'reference link only' : `${similarity}%`;
-            return `<div>${escapeHtml(label)} — ${score}${url}</div>`;
+            const page = source.page ? ` · page ${source.page}` : '';
+            return `<div>[${escapeHtml(source.tag || 'S')}] ${escapeHtml(label)}${page}${url}</div>`;
           }).join('');
-          evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}</div><div style="margin-top:4px">${sourceLines}</div>`;
+          evidence.innerHTML = `<div><strong>Resources used</strong></div><div style="margin-top:4px">${sourceLines}</div>`;
           replyBubble.appendChild(evidence);
         }
         if (Array.isArray(data.suggestions) && data.suggestions.length) {
@@ -2368,12 +2364,11 @@
         retrievalPanel.className = 'bubble-meta';
         const evidence = Array.isArray(data.retrieved_evidence) ? data.retrieved_evidence : [];
         const evidenceRows = evidence.map((item) => {
-          const score = item.reference_only ? 'reference only' : `${Math.round(Number(item.similarity || 0) * 100)}%`;
           const link = item.url ? ` <a href="${item.url}" target="_blank" rel="noopener">↗</a>` : '';
           const page = item.page ? ` · page ${item.page}` : '';
-          return `<div style="margin:6px 0"><strong>[${escapeHtml(item.tag)}] ${escapeHtml(item.source)}</strong> — ${score}${page}${link}<br><span>${escapeHtml(item.excerpt || 'No excerpt available.')}</span></div>`;
+          return `<div style="margin:6px 0"><strong>[${escapeHtml(item.tag)}] ${escapeHtml(item.source)}</strong>${page}${link}<br><span>${escapeHtml(item.excerpt || 'No excerpt available.')}</span></div>`;
         }).join('');
-        retrievalPanel.innerHTML = `<summary>Retrieval: ${escapeHtml(data.retrieval_mode || 'local RAG')} · ${evidence.length} result(s)</summary>${evidenceRows || '<div style="margin-top:6px">No direct evidence was retrieved.</div>'}`;
+        retrievalPanel.innerHTML = `<summary>Resources used · ${evidence.length} result(s)</summary>${evidenceRows || '<div style="margin-top:6px">No direct evidence was retrieved.</div>'}`;
         replyBubble.appendChild(retrievalPanel);
 
         // Add audio speech synthesis trigger button
