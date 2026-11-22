@@ -132,7 +132,14 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
         # Keyword overlap keeps this version fast and easy to inspect locally.
         overlap = len(q_terms & terms(hay))
         overlap_ratio = overlap / max(1, len(q_terms))
-        topic_match = bool(q_terms & terms(str(doc.metadata.get("topic", ""))))
+        identity = " ".join([
+            doc.source,
+            str(doc.metadata.get("topic", "")),
+            str(doc.metadata.get("title", "")),
+            str(doc.metadata.get("local_file", "")),
+        ])
+        identity_ratio = len(q_terms & terms(identity)) / max(1, len(q_terms))
+        topic_match = identity_ratio > 0
         source_bonus = {
             "unicode consortium": 1.5,
             "thesaurus linguae aegyptiae": 1.4,
@@ -159,7 +166,10 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
             **doc.as_dict(),
             "score": round(score, 4),
             "similarity": round(
-                min(0.98, 0.97 if topic_match else (0.92 if score >= 10 else 0.25 + 0.70 * overlap_ratio)),
+                min(
+                    0.98,
+                    0.92 if score >= 10 else 0.20 + (0.45 * identity_ratio) + (0.45 * overlap_ratio),
+                ),
                 3,
             ),
         }

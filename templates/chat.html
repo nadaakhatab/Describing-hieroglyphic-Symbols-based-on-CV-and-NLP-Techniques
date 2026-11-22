@@ -1605,6 +1605,7 @@
         <div class="chat-main">
           <div class="chat-header">
             <h3><span>𓁐</span> Ancient Egyptian AI Scribe</h3>
+            <span id="chatHistoryStatus" style="font-size:0.72rem; color:var(--c-limestone);">History: 0 turns</span>
             <button class="btn btn-outline" style="color: var(--c-papyrus); border-color: rgba(255,255,255,0.3); font-size: 0.8rem; padding: 5px 12px;" onclick="resetChat()">
               ↺ New Session
             </button>
@@ -1851,6 +1852,7 @@
     const chatMessages = document.getElementById('chatMessages');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
+    const chatHistoryStatus = document.getElementById('chatHistoryStatus');
     const activeTagsContainer = document.getElementById('activeTagsContainer');
     const addTagInput = document.getElementById('addTagInput');
     const chatImageContextStatus = document.getElementById('chatImageContextStatus');
@@ -2412,6 +2414,7 @@
         state.chatHistory.push({ role: 'user', content: question });
         state.chatHistory.push({ role: 'assistant', content: data.response.slice(0, 2000) });
         if (state.chatHistory.length > 20) state.chatHistory.splice(0, state.chatHistory.length - 20);
+        chatHistoryStatus.textContent = `History: ${Math.floor(state.chatHistory.length / 2)} turn(s)`;
 
       } catch (err) {
         loadingBubble.className = 'chat-bubble system';
@@ -2433,6 +2436,7 @@
 
     function resetChat() {
       state.chatHistory = [];
+      chatHistoryStatus.textContent = 'History: 0 turns';
       chatMessages.innerHTML = `
         <div class="chat-bubble system">
           Conversation cleared. Session restarted.
