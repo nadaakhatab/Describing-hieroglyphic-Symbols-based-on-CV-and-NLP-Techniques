@@ -16,7 +16,14 @@ def build_context(question: str, records: list[dict], max_chars: int = 9000) -> 
         if used + len(block) > max_chars:
             break
         blocks.append(block)
-        citations.append({"tag": source_tag, "source": record.get("source", "Unknown"), "url": record.get("url", ""), "id": record.get("id", "")})
+        citations.append({
+            "tag": source_tag,
+            "source": record.get("source", "Unknown"),
+            "url": record.get("url", ""),
+            "id": record.get("id", ""),
+            "similarity": record.get("similarity", 0.0),
+            "reference_only": record.get("reference_only", False),
+        })
         used += len(block)
     # These rules help the language model stay close to the retrieved evidence.
     instructions = (

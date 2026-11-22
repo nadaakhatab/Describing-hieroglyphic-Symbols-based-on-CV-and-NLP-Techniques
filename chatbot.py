@@ -99,6 +99,8 @@ class ChatResponse(BaseModel):
     sources: list[dict] = Field(default_factory=list)
     retrieval_confidence: float | None = None
     suggestions: list[str] = Field(default_factory=list)
+    retrieval_mode: str = "local RAG"
+    retrieved_evidence: list[dict] = Field(default_factory=list)
 
 
 class SpeakRequest(BaseModel):
@@ -351,6 +353,11 @@ class ChatService:
                 if reference:
                     rag_records.append(reference)
         rag_packet = build_context(request.message, rag_records)
+        retrieval_mode = "local RAG"
+        if any(record.get("source", "").startswith("Wikipedia") for record in rag_records):
+            retrieval_mode = "RAG + web evidence"
+        if rag_records and all(record.get("reference_only") for record in rag_records):
+            retrieval_mode = "web reference only"
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(turn.model_dump() for turn in request.history)
         messages.append({"role": "user", "content": json.dumps({
@@ -367,6 +374,10 @@ class ChatService:
             "answer_policy": "Use local evidence, then Wikipedia evidence, then clearly labeled general knowledge for easy safe history questions.",
             "consistency_policy": "Keep the same facts, names, relationships, dates, and uncertainty in every language; translate wording only.",
             "evidence_mode": "reference_only" if rag_records and all(record.get("reference_only") for record in rag_records) else "retrieved_evidence",
+            "retrieval_output": [
+                {"tag": citation["tag"], "source": citation["source"], "id": citation["id"], "similarity": citation["similarity"]}
+                for citation in rag_packet["citations"]
+            ],
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
@@ -403,8 +414,16 @@ class ChatService:
         # Return both the answer and the evidence details needed by the UI.
         web_citation = next((item for item in rag_packet["citations"] if "Wikipedia" in item["source"]), None)
         if web_citation and not re.search(r"\[S\d+\]", answer):
-            answer = f"{answer.strip()}\n\nSource: [{web_citation['tag']}] {web_citation['source']}"
+            label = "Reference" if web_citation.get("reference_only") else "Source"
+            answer = f"{answer.strip()}\n\n{label}: [{web_citation['tag']}] {web_citation['source']}"
+        elif rag_packet["citations"] and not re.search(r"\[S\d+\]", answer):
+            sources = ", ".join(f"[{item['tag']}] {item['source']}" for item in rag_packet["citations"][:4])
+            answer = f"{answer.strip()}\n\nSources: {sources}"
         confidence = None if rag_records and all(record.get("reference_only") for record in rag_records) else rag_packet["confidence"]
+        retrieved_evidence = [
+            {**citation, "excerpt": record.get("text", "")[:280]}
+            for citation, record in zip(rag_packet["citations"], rag_records)
+        ]
         return ChatResponse(
             response=answer.strip(),
             context_keys=list(context),
@@ -412,6 +431,8 @@ class ChatService:
             sources=[{**item, "similarity": record.get("similarity", 0.0)} for item, record in zip(rag_packet["citations"], rag_records)],
             retrieval_confidence=confidence,
             suggestions=follow_up_suggestions(request.message, language),
+            retrieval_mode=retrieval_mode,
+            retrieved_evidence=retrieved_evidence,
         )
 
 

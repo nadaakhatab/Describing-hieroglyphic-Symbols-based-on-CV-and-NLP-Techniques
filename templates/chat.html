@@ -2362,6 +2362,16 @@
           suggestions.innerHTML = `<strong>Try next</strong><div style="margin-top:4px">${data.suggestions.map(escapeHtml).join('<br>')}</div>`;
           replyBubble.appendChild(suggestions);
         }
+        const retrievalPanel = document.createElement('details');
+        retrievalPanel.className = 'bubble-meta';
+        const evidence = Array.isArray(data.retrieved_evidence) ? data.retrieved_evidence : [];
+        const evidenceRows = evidence.map((item) => {
+          const score = item.reference_only ? 'reference only' : `${Math.round(Number(item.similarity || 0) * 100)}%`;
+          const link = item.url ? ` <a href="${item.url}" target="_blank" rel="noopener">↗</a>` : '';
+          return `<div style="margin:6px 0"><strong>[${escapeHtml(item.tag)}] ${escapeHtml(item.source)}</strong> — ${score}${link}<br><span>${escapeHtml(item.excerpt || 'No excerpt available.')}</span></div>`;
+        }).join('');
+        retrievalPanel.innerHTML = `<summary>Retrieval: ${escapeHtml(data.retrieval_mode || 'local RAG')} · ${evidence.length} result(s)</summary>${evidenceRows || '<div style="margin-top:6px">No direct evidence was retrieved.</div>'}`;
+        replyBubble.appendChild(retrievalPanel);
 
         // Add audio speech synthesis trigger button
         const audioBtn = document.createElement('button');
