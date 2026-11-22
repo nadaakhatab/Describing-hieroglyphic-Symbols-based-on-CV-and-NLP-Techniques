@@ -5,11 +5,18 @@ import json
 import math
 import re
 from dataclasses import dataclass, asdict
+from functools import lru_cache
 from pathlib import Path
+
+try:
+    import fitz  # PyMuPDF; optional until the book index is needed.
+except ImportError:
+    fitz = None
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DATA = ROOT / "data" / "semantic_meaning.json"
 RAG_DATA = Path(__file__).resolve().parent / "data"
+BOOK_DIR = RAG_DATA / "books"
 STOP = {
     "what", "does", "mean", "tell", "about", "this", "that", "with", "from",
     "explain", "symbol", "glyph", "hieroglyph", "egyptian", "ancient", "who",
@@ -37,9 +44,39 @@ def terms(text: str) -> set[str]:
     }
 
 
-def load_documents() -> list[Document]:
+def load_book_documents() -> list[Document]:
+    """Read local books page by page when PyMuPDF is installed."""
+    if fitz is None or not BOOK_DIR.exists():
+        return []
+    documents: list[Document] = []
+    for path in sorted(BOOK_DIR.glob("*.pdf")):
+        try:
+            pdf = fitz.open(path)
+            for page_number, page in enumerate(pdf, start=1):
+                text = " ".join(page.get_text("text").split())
+                if len(text) < 80:
+                    continue
+                documents.append(Document(
+                    id=f"book-{path.stem}-{page_number}",
+                    text=text,
+                    source=path.stem,
+                    url="",
+                    metadata={
+                        "source_type": "book_pdf",
+                        "local_file": str(path.relative_to(RAG_DATA)),
+                        "page": page_number,
+                    },
+                ))
+            pdf.close()
+        except Exception:
+            continue
+    return documents
+
+
+@lru_cache(maxsize=1)
+def load_documents() -> tuple[Document, ...]:
     # First, load the original 179-sign catalog used by the Symbol Explorer.
-    docs: list[Document] = []
+    docs: list[Document] = list(load_book_documents())
     if LOCAL_DATA.exists():
         raw = json.loads(LOCAL_DATA.read_text(encoding="utf-8-sig"))
         for key, value in raw.items():
@@ -71,7 +108,7 @@ def load_documents() -> list[Document]:
     if manifest.exists():
         for item in json.loads(manifest.read_text(encoding="utf-8")):
             docs.append(Document(item["id"], item["text"], item["source"], item["url"], item.get("metadata", {})))
-    return docs
+    return tuple(docs)
 
 
 def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters: dict | None = None) -> list[dict]:

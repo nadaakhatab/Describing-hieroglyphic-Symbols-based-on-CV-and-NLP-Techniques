@@ -21,6 +21,8 @@ def build_context(question: str, records: list[dict], max_chars: int = 9000) -> 
             "source": record.get("source", "Unknown"),
             "url": record.get("url", ""),
             "id": record.get("id", ""),
+            "page": record.get("metadata", {}).get("page"),
+            "local_file": record.get("metadata", {}).get("local_file", ""),
             "similarity": record.get("similarity", 0.0),
             "reference_only": record.get("reference_only", False),
         })
