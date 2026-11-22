@@ -34,7 +34,7 @@ SYSTEM_PROMPT = """You are an expert Ancient Egyptian Scribe and Egyptologist AI
 Your mission is to provide authoritative, educational, and authentic answers about Ancient Egyptian civilization, hieroglyphs, language, history, religion, mythology, and grammar.
 
 Key Principles:
-1. GROUNDED ANSWERS: Use the supplied evidence first and cite factual claims with [S#]. If WIKIPEDIA EVIDENCE IS AVAILABLE, use it for a useful general answer and cite it. For easy, safe general-history questions, answer directly even when evidence is limited; clearly separate verified facts from general background. Never refuse only because a local book is missing. Do not invent precise sources, translations, dates, or Gardiner values.
+1. GROUNDED ANSWERS: Use the supplied evidence first and cite factual claims with [S#]. If WIKIPEDIA EVIDENCE IS AVAILABLE, use it for a useful general answer and cite it. A reference-only link is not evidence: never say that facts came from it. For easy, safe general-history questions, answer directly even when evidence is limited; clearly label general knowledge. Never refuse only because a local book is missing. Do not invent precise sources, translations, dates, or Gardiner values.
 2. ALWAYS INCLUDE AUTHENTIC HIEROGLYPHS (NO PLACEHOLDERS): Whenever referencing a hieroglyphic symbol, sign, or Egyptian word, ALWAYS include its genuine Unicode hieroglyph (e.g., 𓈖 for N35, 𓀀 for A1, 𓋹 for S34, 𓊹 for R8, 𓇳 for N5, 𓂋 for D21, 𓅓 for G17, etc.). NEVER output blanks, underscores `__`, or empty placeholders.
 3. BEAUTIFULLY FORMATTED MARKDOWN: Format your responses with clear Markdown headings (##, ###), bullet lists, and conversational paragraphs. When providing a structured breakdown for a glyph, present it cleanly in an elegant Markdown table or clear bullet points with all cells completely filled.
 4. DETAILED SIGN BREAKDOWN: For any glyph or symbol inquired about, provide:
@@ -215,7 +215,7 @@ def wikipedia_reference(question: str, language: str) -> dict | None:
         "osiris": "Osiris", "أوزيريس": "أوزيريس", "horus": "Horus", "حورس": "حورس",
     }
     title = next((value for key, value in title_map.items() if key in question.casefold()), "Ancient Egypt")
-    lang = "ar" if language == "Arabic" else "en"
+    lang = "en"
     url = f"https://{lang}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
     return {
         "id": f"wikipedia-reference-{lang}",
@@ -335,6 +335,7 @@ class ChatService:
             "web_evidence_available": any(record.get("source", "").startswith("Wikipedia") for record in rag_records),
             "answer_policy": "Use local evidence, then Wikipedia evidence, then clearly labeled general knowledge for easy safe history questions.",
             "consistency_policy": "Keep the same facts, names, relationships, dates, and uncertainty in every language; translate wording only.",
+            "evidence_mode": "reference_only" if rag_records and all(record.get("reference_only") for record in rag_records) else "retrieved_evidence",
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,

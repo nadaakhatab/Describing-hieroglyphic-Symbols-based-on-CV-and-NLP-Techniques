@@ -2353,7 +2353,7 @@
             const score = source.reference_only ? 'reference link only' : `${similarity}%`;
             return `<div>${escapeHtml(label)} — ${score}${url}</div>`;
           }).join('');
-          evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
+          evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}</div><div style="margin-top:4px">${sourceLines}</div>`;
           replyBubble.appendChild(evidence);
         }
         if (Array.isArray(data.suggestions) && data.suggestions.length) {
