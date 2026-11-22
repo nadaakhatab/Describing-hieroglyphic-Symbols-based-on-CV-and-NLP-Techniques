@@ -164,6 +164,8 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
         )
         result.raise_for_status()
         pages = result.json().get("query", {}).get("search", [])
+        if not pages:
+            pages = [{"title": wikipedia_title(question)}]
         evidence = []
         for page in pages[:2]:
             title = page.get("title", "")
@@ -183,7 +185,24 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
                     "source": f"Wikipedia ({lang})", "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
                     "similarity": evidence_similarity(question, text),
                 })
-        return evidence
+        if evidence:
+            return evidence
+        title = wikipedia_title(question)
+        summary = await client.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}",
+            headers={"User-Agent": "KemetStudio/1.0 educational Egyptology assistant"},
+        )
+        if summary.is_success:
+            data = summary.json()
+            text = data.get("extract", "").strip()
+            if text:
+                return [{
+                    "id": f"wikipedia-en-{title}", "text": text,
+                    "source": "Wikipedia (English)",
+                    "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                    "similarity": evidence_similarity(question, text),
+                }]
+        return []
     except (httpx.HTTPError, ValueError, KeyError):
         return []
 
@@ -214,6 +233,18 @@ def wikipedia_reference(question: str, language: str) -> dict | None:
         "رمسيس": "رمسيس الثاني", "pyramid": "Egyptian pyramids", "الأهرام": "أهرامات مصر",
         "osiris": "Osiris", "أوزيريس": "أوزيريس", "horus": "Horus", "حورس": "حورس",
     }
+
+
+def wikipedia_title(question: str) -> str:
+    """Choose a stable English Wikipedia page for common Egyptology topics."""
+    titles = {
+        "isis": "Isis", "إيزيس": "Isis", "ramesses": "Ramesses II", "رمسيس": "Ramesses II",
+        "pyramid": "Egyptian pyramids", "الأهرام": "Egyptian pyramids", "osiris": "Osiris",
+        "أوزيريس": "Osiris", "horus": "Horus", "حورس": "Horus", "seth": "Set (mythology)",
+        "سيث": "Set (mythology)",
+    }
+    question_lower = question.casefold()
+    return next((title for key, title in titles.items() if key in question_lower), "Ancient Egypt")
     title = next((value for key, value in title_map.items() if key in question.casefold()), "Ancient Egypt")
     lang = "en"
     url = f"https://{lang}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
