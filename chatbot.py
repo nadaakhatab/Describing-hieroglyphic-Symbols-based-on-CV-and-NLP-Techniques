@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -95,6 +96,7 @@ class ChatResponse(BaseModel):
     knowledge_loaded: bool
     sources: list[dict] = Field(default_factory=list)
     retrieval_confidence: float = 0.0
+    suggestions: list[str] = Field(default_factory=list)
 
 
 class SpeakRequest(BaseModel):
@@ -119,6 +121,53 @@ def response_language(text: str) -> str:
     arabic = len(re.findall(r"[\u0600-\u06ff]", text))
     latin = len(re.findall(r"[a-z]", text.casefold()))
     return "Arabic" if arabic > latin else "English"
+
+
+def web_search_allowed(question: str) -> bool:
+    """Allow simple research searches, but keep risky requests local and safe."""
+    risky = ("medical", "diagnose", "weapon", "harm", "steal", "loot", "forge", "دواء", "سلاح", "سرقة")
+    return not any(word in question.casefold() for word in risky)
+
+
+async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language: str) -> list[dict]:
+    """Find a short Wikipedia summary when the local evidence is not enough."""
+    if not web_search_allowed(question):
+        return []
+    lang = "ar" if language == "Arabic" else "en"
+    search_url = f"https://{lang}.wikipedia.org/w/api.php"
+    try:
+        result = await client.get(search_url, params={
+            "action": "query", "list": "search", "srsearch": question,
+            "srlimit": 2, "format": "json", "utf8": 1,
+        })
+        result.raise_for_status()
+        pages = result.json().get("query", {}).get("search", [])
+        evidence = []
+        for page in pages[:2]:
+            title = page.get("title", "")
+            if not title:
+                continue
+            summary = await client.get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}")
+            if summary.is_error:
+                continue
+            data = summary.json()
+            text = data.get("extract", "").strip()
+            if text:
+                evidence.append({
+                    "id": f"wikipedia-{lang}-{title}", "text": text,
+                    "source": f"Wikipedia ({lang})", "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                    "similarity": 0.55,
+                })
+        return evidence
+    except (httpx.HTTPError, ValueError, KeyError):
+        return []
+
+
+def follow_up_suggestions(question: str, language: str) -> list[str]:
+    """Offer two friendly next questions without making the answer noisy."""
+    if language == "Arabic":
+        return ["هل تريد معرفة الفترة التاريخية المرتبطة به؟", "هل تريد أن أشرح الرموز أو الشخصيات المرتبطة به؟"]
+    return ["Would you like to know its historical period?", "Would you like me to explain the related signs or figures?"]
 
 
 class KnowledgeBase:
@@ -193,6 +242,9 @@ class ChatService:
             context = self.knowledge.retrieve(prior, request.glyph_codes)
         # Search the local knowledge base before asking Groq to write an answer.
         rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
+        language = response_language(request.message)
+        if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.45:
+            rag_records.extend(await wikipedia_evidence(self.client, request.message, language))
         rag_packet = build_context(request.message, rag_records)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(turn.model_dump() for turn in request.history)
@@ -204,7 +256,8 @@ class ChatService:
             "rag_evidence": rag_packet["context"],
             "rag_instructions": rag_packet["instructions"],
             "rag_citations": rag_packet["citations"],
-            "answer_language": response_language(request.message),
+            "answer_language": language,
+            "web_search_note": "Web summaries may be used for simple background questions. Cite them as Wikipedia and keep uncertainty clear.",
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
@@ -245,6 +298,7 @@ class ChatService:
             knowledge_loaded=bool(self.knowledge.records) or bool(rag_records),
             sources=[{**item, "similarity": record.get("similarity", 0.0)} for item, record in zip(rag_packet["citations"], rag_records)],
             retrieval_confidence=rag_packet["confidence"],
+            suggestions=follow_up_suggestions(request.message, language),
         )
 
 

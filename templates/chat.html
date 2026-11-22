@@ -2353,6 +2353,12 @@
           evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
           replyBubble.appendChild(evidence);
         }
+        if (Array.isArray(data.suggestions) && data.suggestions.length) {
+          const suggestions = document.createElement('div');
+          suggestions.className = 'bubble-meta';
+          suggestions.innerHTML = `<strong>Try next</strong><div style="margin-top:4px">${data.suggestions.map(escapeHtml).join('<br>')}</div>`;
+          replyBubble.appendChild(suggestions);
+        }
 
         // Add audio speech synthesis trigger button
         const audioBtn = document.createElement('button');

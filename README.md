@@ -41,9 +41,12 @@ The key stays on the server and is never sent to the browser.
 1. The user sends a question from the browser.
 2. `rag/retrieval.py` searches the local catalog, curated JSONL records, book
    metadata, and article records. Gardiner and Unicode matches receive priority.
-3. `rag/augmentation.py` builds evidence blocks and citation tags.
-4. `chatbot.py` sends the question and evidence to Groq.
-5. The response includes citations, source links, and similarity scores.
+3. If local evidence is weak and the question is a safe general-history question,
+   the chatbot can add short Wikipedia summaries as web evidence.
+4. `rag/augmentation.py` builds evidence blocks and citation tags.
+5. `chatbot.py` sends the question and evidence to Groq.
+6. The response includes citations, source links, similarity scores, and friendly
+   follow-up suggestions.
 
 The system does not silently scrape websites. Article records keep the source
 URL and metadata; book records point to the local PDFs. Page-level extraction
