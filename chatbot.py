@@ -34,7 +34,7 @@ SYSTEM_PROMPT = """You are an expert Ancient Egyptian Scribe and Egyptologist AI
 Your mission is to provide authoritative, educational, and authentic answers about Ancient Egyptian civilization, hieroglyphs, language, history, religion, mythology, and grammar.
 
 Key Principles:
-1. GROUNDED ANSWERS: Use the supplied RAG evidence first. Cite factual claims with [S#]. If evidence is missing or conflicting, say so clearly and do not invent a source, translation, date, or Gardiner value.
+1. GROUNDED ANSWERS: Use the supplied evidence first and cite factual claims with [S#]. If WIKIPEDIA EVIDENCE IS AVAILABLE, use it for a useful general answer and cite it. If web and local evidence are both missing, answer easy, safe general-history questions from your broad knowledge and label the answer as general knowledge. Do not invent precise sources, translations, dates, or Gardiner values.
 2. ALWAYS INCLUDE AUTHENTIC HIEROGLYPHS (NO PLACEHOLDERS): Whenever referencing a hieroglyphic symbol, sign, or Egyptian word, ALWAYS include its genuine Unicode hieroglyph (e.g., 𓈖 for N35, 𓀀 for A1, 𓋹 for S34, 𓊹 for R8, 𓇳 for N5, 𓂋 for D21, 𓅓 for G17, etc.). NEVER output blanks, underscores `__`, or empty placeholders.
 3. BEAUTIFULLY FORMATTED MARKDOWN: Format your responses with clear Markdown headings (##, ###), bullet lists, and conversational paragraphs. When providing a structured breakdown for a glyph, present it cleanly in an elegant Markdown table or clear bullet points with all cells completely filled.
 4. DETAILED SIGN BREAKDOWN: For any glyph or symbol inquired about, provide:
@@ -136,10 +136,14 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
     lang = "ar" if language == "Arabic" else "en"
     search_url = f"https://{lang}.wikipedia.org/w/api.php"
     try:
-        result = await client.get(search_url, params={
-            "action": "query", "list": "search", "srsearch": question,
-            "srlimit": 2, "format": "json", "utf8": 1,
-        })
+        result = await client.get(
+            search_url,
+            params={
+                "action": "query", "list": "search", "srsearch": question,
+                "srlimit": 2, "format": "json", "utf8": 1,
+            },
+            headers={"User-Agent": "KemetStudio/1.0 educational Egyptology assistant"},
+        )
         result.raise_for_status()
         pages = result.json().get("query", {}).get("search", [])
         evidence = []
@@ -147,7 +151,10 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
             title = page.get("title", "")
             if not title:
                 continue
-            summary = await client.get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}")
+            summary = await client.get(
+                f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}",
+                headers={"User-Agent": "KemetStudio/1.0 educational Egyptology assistant"},
+            )
             if summary.is_error:
                 continue
             data = summary.json()
@@ -156,7 +163,7 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
                 evidence.append({
                     "id": f"wikipedia-{lang}-{title}", "text": text,
                     "source": f"Wikipedia ({lang})", "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
-                    "similarity": 0.55,
+                    "similarity": 0.72,
                 })
         return evidence
     except (httpx.HTTPError, ValueError, KeyError):
@@ -165,9 +172,21 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
 
 def follow_up_suggestions(question: str, language: str) -> list[str]:
     """Offer two friendly next questions without making the answer noisy."""
+    lower = question.casefold()
+    topics = {
+        "isis": ("What was Isis's role in Egyptian religion?", "How was Isis connected to Osiris and Horus?"),
+        "إيزيس": ("ما دور إيزيس في الديانة المصرية؟", "ما علاقة إيزيس بأوزيريس وحورس؟"),
+        "ramesses": ("What were Ramesses II's main achievements?", "What monuments are connected to Ramesses II?"),
+        "رمسيس": ("ما أهم إنجازات رمسيس الثاني؟", "ما الآثار المرتبطة برمسيس الثاني؟"),
+        "pyramid": ("How were the pyramids built?", "What did pyramids mean in Egyptian religion?"),
+        "الأهرام": ("كيف بُنيت الأهرامات؟", "ما معنى الأهرامات في الديانة المصرية؟"),
+    }
+    for keyword, suggestions in topics.items():
+        if keyword in lower:
+            return list(suggestions)
     if language == "Arabic":
-        return ["هل تريد معرفة الفترة التاريخية المرتبطة به؟", "هل تريد أن أشرح الرموز أو الشخصيات المرتبطة به؟"]
-    return ["Would you like to know its historical period?", "Would you like me to explain the related signs or figures?"]
+        return ["هل تريد معرفة الفترة التاريخية المرتبطة بالموضوع؟", "هل تريد أن أقارن هذا الموضوع بمصدر أو شخصية أخرى؟"]
+    return ["Would you like to know more about its historical period?", "Would you like a comparison with another source or figure?"]
 
 
 class KnowledgeBase:
@@ -243,7 +262,7 @@ class ChatService:
         # Search the local knowledge base before asking Groq to write an answer.
         rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
         language = response_language(request.message)
-        if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.45:
+        if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
             rag_records.extend(await wikipedia_evidence(self.client, request.message, language))
         rag_packet = build_context(request.message, rag_records)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -258,6 +277,8 @@ class ChatService:
             "rag_citations": rag_packet["citations"],
             "answer_language": language,
             "web_search_note": "Web summaries may be used for simple background questions. Cite them as Wikipedia and keep uncertainty clear.",
+            "web_evidence_available": any(record.get("source", "").startswith("Wikipedia") for record in rag_records),
+            "answer_policy": "Use local evidence, then Wikipedia evidence, then clearly labeled general knowledge for easy safe history questions.",
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
@@ -312,7 +333,7 @@ def create_chat_router(
 
     @router.post("/chat", response_model=ChatResponse)
     async def chat(request: ChatRequest) -> ChatResponse:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             try:
                 return await ChatService(settings, knowledge, client).reply(request)
             except ChatError as exc:
