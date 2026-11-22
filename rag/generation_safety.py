@@ -14,6 +14,7 @@ UNSAFE = ("how to forge", "how to loot", "how to steal", "make a weapon", "harm 
 
 
 def safety_check(question: str) -> tuple[bool, str]:
+    # Block harmful requests before they reach the external AI provider.
     normalized = question.casefold().strip()
     for phrase in UNSAFE:
         if phrase in normalized:
@@ -24,6 +25,7 @@ def safety_check(question: str) -> tuple[bool, str]:
 
 
 async def generate(question: str, records: list[dict], chat_call: Callable | None = None) -> dict:
+    # Safety comes first; generation starts only after the question is allowed.
     allowed, message = safety_check(question)
     if not allowed:
         return {"response": message, "citations": [], "blocked": True}

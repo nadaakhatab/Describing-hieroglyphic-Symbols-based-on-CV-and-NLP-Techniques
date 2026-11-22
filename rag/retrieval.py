@@ -37,6 +37,7 @@ def terms(text: str) -> set[str]:
 
 
 def load_documents() -> list[Document]:
+    # First, load the original 179-sign catalog used by the Symbol Explorer.
     docs: list[Document] = []
     if LOCAL_DATA.exists():
         raw = json.loads(LOCAL_DATA.read_text(encoding="utf-8-sig"))
@@ -47,6 +48,7 @@ def load_documents() -> list[Document]:
             docs.append(Document(f"local-{code}-{glyph}", story, "Kemet Studio local catalog", "", {"gardiner": code, "glyph": glyph, "kind": "sign_story"}))
     # JSONL files are manually curated; retrieval never scrapes a website.
     for filename in ("signs.jsonl", "lexicon.jsonl", "texts.jsonl", "history.jsonl", "artifacts.jsonl", "books.jsonl", "articles.jsonl"):
+        # Each JSONL file adds one small, focused knowledge collection.
         path = RAG_DATA / filename
         if not path.exists():
             continue
@@ -72,6 +74,7 @@ def load_documents() -> list[Document]:
 
 
 def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters: dict | None = None) -> list[dict]:
+    # Exact Gardiner or Unicode matches get the strongest ranking signal.
     codes = codes or []
     q_terms = terms(query)
     wanted = {x.casefold().strip() for x in codes}
@@ -88,6 +91,7 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
         for code in wanted:
             if code and code in hay:
                 exact += 10
+        # Keyword overlap keeps this version fast and easy to inspect locally.
         overlap = len(q_terms & terms(hay))
         source_bonus = {
             "unicode consortium": 1.5,

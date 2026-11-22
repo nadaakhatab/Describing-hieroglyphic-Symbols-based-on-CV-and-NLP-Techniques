@@ -5,6 +5,7 @@ import json
 
 
 def build_context(question: str, records: list[dict], max_chars: int = 9000) -> dict:
+    # Turn search results into short evidence blocks with stable source tags.
     blocks: list[str] = []
     citations: list[dict] = []
     used = 0
@@ -17,6 +18,7 @@ def build_context(question: str, records: list[dict], max_chars: int = 9000) -> 
         blocks.append(block)
         citations.append({"tag": source_tag, "source": record.get("source", "Unknown"), "url": record.get("url", ""), "id": record.get("id", "")})
         used += len(block)
+    # These rules help the language model stay close to the retrieved evidence.
     instructions = (
         "Answer the question using the evidence below. Cite factual claims with [S#]. "
         "If the evidence is insufficient, say so clearly; do not invent a Gardiner value, "

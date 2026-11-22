@@ -173,6 +173,7 @@ class ChatService:
         context = self.knowledge.retrieve(request.message, request.glyph_codes)
         if not context and prior:
             context = self.knowledge.retrieve(prior, request.glyph_codes)
+        # Search the local knowledge base before asking Groq to write an answer.
         rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
         rag_packet = build_context(request.message, rag_records)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -192,6 +193,7 @@ class ChatService:
         }
         if self.settings.model.startswith("openai/gpt-oss-"):
             payload.update(reasoning_effort="low", reasoning_format="hidden")
+        # Send the question, conversation history, and grounded evidence together.
         try:
             result = await self.client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
@@ -217,6 +219,7 @@ class ChatService:
                 answer += "\n\n[Response limit reached; ask for a shorter explanation.]"
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ChatError(502, "The AI service returned an invalid response.") from exc
+        # Return both the answer and the evidence details needed by the UI.
         return ChatResponse(
             response=answer.strip(),
             context_keys=list(context),
