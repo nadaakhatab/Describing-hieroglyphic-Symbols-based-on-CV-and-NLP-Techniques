@@ -19,6 +19,9 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from rag.augmentation import build_context
+from rag.retrieval import retrieve as rag_retrieve
+
 ROOT = Path(__file__).resolve().parent
 LOGGER = logging.getLogger(__name__)
 STOP_WORDS = {
@@ -30,7 +33,7 @@ SYSTEM_PROMPT = """You are an expert Ancient Egyptian Scribe and Egyptologist AI
 Your mission is to provide authoritative, educational, and authentic answers about Ancient Egyptian civilization, hieroglyphs, language, history, religion, mythology, and grammar.
 
 Key Principles:
-1. UNLINKED FROM DATABASE RESTRICTIONS: You are NOT constrained to any local JSON file. Answer all questions about Ancient Egypt freely, deeply, and accurately using your comprehensive Egyptological knowledge. Never state that a symbol or concept is unknown or missing from a database.
+1. GROUNDED ANSWERS: Use the supplied RAG evidence first. Cite factual claims with [S#]. If evidence is missing or conflicting, say so clearly and do not invent a source, translation, date, or Gardiner value.
 2. ALWAYS INCLUDE AUTHENTIC HIEROGLYPHS (NO PLACEHOLDERS): Whenever referencing a hieroglyphic symbol, sign, or Egyptian word, ALWAYS include its genuine Unicode hieroglyph (e.g., 𓈖 for N35, 𓀀 for A1, 𓋹 for S34, 𓊹 for R8, 𓇳 for N5, 𓂋 for D21, 𓅓 for G17, etc.). NEVER output blanks, underscores `__`, or empty placeholders.
 3. BEAUTIFULLY FORMATTED MARKDOWN: Format your responses with clear Markdown headings (##, ###), bullet lists, and conversational paragraphs. When providing a structured breakdown for a glyph, present it cleanly in an elegant Markdown table or clear bullet points with all cells completely filled.
 4. DETAILED SIGN BREAKDOWN: For any glyph or symbol inquired about, provide:
@@ -48,7 +51,7 @@ class Settings:
 
     api_key: str = field(repr=False)
     model: str = "openai/gpt-oss-20b"
-    data_path: Path = ROOT / "data" / "Semantic meaning.json"
+    data_path: Path = ROOT / "data" / "semantic_meaning.json"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -59,7 +62,7 @@ class Settings:
         model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
         if not model:
             raise ValueError("GROQ_MODEL must not be empty.")
-        path = Path(os.getenv("GLYPH_DATA_PATH", "data/Semantic meaning.json"))
+        path = Path(os.getenv("GLYPH_DATA_PATH", "data/semantic_meaning.json"))
         return cls(key, model, path if path.is_absolute() else ROOT / path)
 
 
@@ -88,6 +91,8 @@ class ChatResponse(BaseModel):
     response: str
     context_keys: list[str] = Field(default_factory=list)
     knowledge_loaded: bool
+    sources: list[dict] = Field(default_factory=list)
+    retrieval_confidence: float = 0.0
 
 
 class SpeakRequest(BaseModel):
@@ -168,6 +173,8 @@ class ChatService:
         context = self.knowledge.retrieve(request.message, request.glyph_codes)
         if not context and prior:
             context = self.knowledge.retrieve(prior, request.glyph_codes)
+        rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
+        rag_packet = build_context(request.message, rag_records)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(turn.model_dump() for turn in request.history)
         messages.append({"role": "user", "content": json.dumps({
@@ -175,6 +182,9 @@ class ChatService:
             "supplied_glyph_codes": request.glyph_codes,
             "image_context": request.image_context,
             "local_descriptions": context,
+            "rag_evidence": rag_packet["context"],
+            "rag_instructions": rag_packet["instructions"],
+            "rag_citations": rag_packet["citations"],
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
@@ -210,7 +220,9 @@ class ChatService:
         return ChatResponse(
             response=answer.strip(),
             context_keys=list(context),
-            knowledge_loaded=bool(self.knowledge.records),
+            knowledge_loaded=bool(self.knowledge.records) or bool(rag_records),
+            sources=[{**item, "similarity": record.get("similarity", 0.0)} for item, record in zip(rag_packet["citations"], rag_records)],
+            retrieval_confidence=rag_packet["confidence"],
         )
 
 

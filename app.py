@@ -25,7 +25,7 @@ from speech import SpeechError, synthesize_wav
 from vision import HieroglyphDetector, ImageValidationError, VisionError
 
 ROOT = Path(__file__).resolve().parent
-STORY_PATH = ROOT / "data" / "Semantic meaning.json"
+STORY_PATH = ROOT / "data" / "semantic_meaning.json"
 CHAT_PAGE = ROOT / "templates" / "chat.html"
 
 app = FastAPI(title="Hieroglyph Assistant")

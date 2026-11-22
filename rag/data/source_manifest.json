@@ -1,0 +1,51 @@
+[
+  {
+    "id": "source-unicode-uax57",
+    "source": "Unicode Egyptian Hieroglyph Database (UAX #57)",
+    "url": "https://www.unicode.org/reports/tr57/",
+    "text": "Unicode UAX #57 documents Egyptian hieroglyph code points, names, Gardiner-based identifiers, functions, and the Unikemet database. Treat Unicode identity as a sign-encoding reference, not by itself as a complete dictionary or translation.",
+    "metadata": {"kind": "sign_reference", "authority": "Unicode Consortium", "license_note": "Check the source terms before redistribution"}
+  },
+  {
+    "id": "source-unicode-mdc",
+    "source": "Unicode Technical Note 32 — Manuel de Codage mapping",
+    "url": "https://www.unicode.org/notes/tn32/",
+    "text": "Unicode Technical Note 32 describes mappings between Manuel de Codage notation and Unicode Egyptian hieroglyph code points. Use it to normalize MdC, Gardiner identifiers, and Unicode glyphs before retrieval.",
+    "metadata": {"kind": "encoding_reference", "authority": "Unicode Consortium"}
+  },
+  {
+    "id": "source-tla",
+    "source": "Thesaurus Linguae Aegyptiae",
+    "url": "https://thesaurus-linguae-aegyptiae.de/",
+    "text": "The Thesaurus Linguae Aegyptiae is an open-access publication platform for Egyptian-language texts and linked vocabulary across language stages, including Demotic. Dictionary meanings and corpus examples should be kept separate from modern cultural interpretation.",
+    "metadata": {"kind": "lexicon_corpus", "authority": "BBAW and SAW"}
+  },
+  {
+    "id": "source-ramses",
+    "source": "Ramses Online Corpus",
+    "url": "https://ramses.ulg.ac.be/site/corpus",
+    "text": "Ramses Online provides searchable annotated Egyptian texts, especially useful for Late Egyptian language, historical names, and examples in context. Record the text identifier and edition when ingesting excerpts.",
+    "metadata": {"kind": "text_corpus", "authority": "University of Liège"}
+  },
+  {
+    "id": "source-ucl-digital-egypt",
+    "source": "Digital Egypt for Universities",
+    "url": "https://www.ucl.ac.uk/museums-static/digitalegypt/",
+    "text": "Digital Egypt for Universities is a higher-education teaching resource covering Egyptian history, archaeology, language, religion, objects, and sites. Use it for explanatory background and educational summaries, with the page URL retained as provenance.",
+    "metadata": {"kind": "education", "authority": "University College London"}
+  },
+  {
+    "id": "source-met-heilbrunn",
+    "source": "The Metropolitan Museum of Art — Heilbrunn Timeline",
+    "url": "https://www.metmuseum.org/met-publications/heilbrunn-timeline-of-art-history",
+    "text": "The Heilbrunn Timeline provides curator-authored essays, chronologies, and object context. Use museum essays for art history and cultural context, not as a replacement for a language dictionary.",
+    "metadata": {"kind": "museum_essays", "authority": "The Metropolitan Museum of Art"}
+  },
+  {
+    "id": "source-jsesh",
+    "source": "JSesh Documentation",
+    "url": "https://jseshdoc.qenherkhopeshef.org/",
+    "text": "JSesh documentation explains hieroglyphic typesetting and Manuel de Codage workflows. Use it to parse sign placement and encoding, while preserving the original MdC string in metadata.",
+    "metadata": {"kind": "typesetting_reference", "authority": "JSesh project"}
+  }
+]

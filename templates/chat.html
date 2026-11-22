@@ -2340,6 +2340,20 @@
         loadingBubble.remove();
         const replyBubble = appendChatBubble('assistant', data.response);
 
+        if (Array.isArray(data.sources) && data.sources.length) {
+          const evidence = document.createElement('div');
+          evidence.className = 'bubble-meta';
+          const confidence = Math.round((Number(data.retrieval_confidence || 0)) * 100);
+          const sourceLines = data.sources.slice(0, 4).map((source) => {
+            const similarity = Math.round((Number(source.similarity || 0)) * 100);
+            const label = source.source || source.id || 'Source';
+            const url = source.url ? ` <a href="${source.url}" target="_blank" rel="noopener">↗</a>` : '';
+            return `<div>${escapeHtml(label)} — ${similarity}%${url}</div>`;
+          }).join('');
+          evidence.innerHTML = `<div><strong>RAG evidence</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
+          replyBubble.appendChild(evidence);
+        }
+
         // Add audio speech synthesis trigger button
         const audioBtn = document.createElement('button');
         audioBtn.className = 'btn btn-outline';

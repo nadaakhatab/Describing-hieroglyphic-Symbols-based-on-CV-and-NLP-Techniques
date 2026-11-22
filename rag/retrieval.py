@@ -1,0 +1,117 @@
+"""Dependency-light hybrid retrieval for the Kemet Studio knowledge base."""
+from __future__ import annotations
+
+import json
+import math
+import re
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+LOCAL_DATA = ROOT / "data" / "semantic_meaning.json"
+RAG_DATA = Path(__file__).resolve().parent / "data"
+STOP = {
+    "what", "does", "mean", "tell", "about", "this", "that", "with", "from",
+    "explain", "symbol", "glyph", "hieroglyph", "egyptian", "ancient",
+}
+
+
+@dataclass
+class Document:
+    id: str
+    text: str
+    source: str
+    url: str
+    metadata: dict
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def terms(text: str) -> set[str]:
+    return {
+        word.casefold()
+        for word in re.findall(r"[^\W\d_]+", text, flags=re.UNICODE)
+        if len(word) > 2 and word.casefold() not in STOP
+    }
+
+
+def load_documents() -> list[Document]:
+    docs: list[Document] = []
+    if LOCAL_DATA.exists():
+        raw = json.loads(LOCAL_DATA.read_text(encoding="utf-8-sig"))
+        for key, value in raw.items():
+            story = value.get("story", "") if isinstance(value, dict) else str(value)
+            parts = key.split("-", 1)
+            code, glyph = parts[0], parts[1] if len(parts) > 1 else ""
+            docs.append(Document(f"local-{code}-{glyph}", story, "Kemet Studio local catalog", "", {"gardiner": code, "glyph": glyph, "kind": "sign_story"}))
+    # JSONL files are manually curated; retrieval never scrapes a website.
+    for filename in ("signs.jsonl", "lexicon.jsonl", "texts.jsonl", "history.jsonl", "artifacts.jsonl", "books.jsonl", "articles.jsonl"):
+        path = RAG_DATA / filename
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            item = json.loads(line)
+            text = item.get("text") or " | ".join(
+                f"{key}: {value}"
+                for key, value in item.items()
+                if key not in {"id", "source_url"} and value
+            )
+            docs.append(Document(
+                str(item.get("id", f"{filename}-{len(docs)}")), text,
+                item.get("source", filename),
+                item.get("source_url", item.get("url", "")), item,
+            ))
+    manifest = RAG_DATA / "source_manifest.json"
+    if manifest.exists():
+        for item in json.loads(manifest.read_text(encoding="utf-8")):
+            docs.append(Document(item["id"], item["text"], item["source"], item["url"], item.get("metadata", {})))
+    return docs
+
+
+def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters: dict | None = None) -> list[dict]:
+    codes = codes or []
+    q_terms = terms(query)
+    wanted = {x.casefold().strip() for x in codes}
+    docs = load_documents()
+    scored: list[tuple[float, Document]] = []
+    for doc in docs:
+        if filters and any(
+            str(doc.metadata.get(key, "")).casefold() != str(value).casefold()
+            for key, value in filters.items()
+        ):
+            continue
+        hay = f"{doc.id} {doc.text} {json.dumps(doc.metadata, ensure_ascii=False)}".casefold()
+        exact = 0
+        for code in wanted:
+            if code and code in hay:
+                exact += 10
+        overlap = len(q_terms & terms(hay))
+        source_bonus = {
+            "unicode consortium": 1.5,
+            "thesaurus linguae aegyptiae": 1.4,
+        }.get(doc.source.casefold(), 0.0)
+        score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus
+        if score > 0:
+            scored.append((score, doc))
+    scored.sort(key=lambda pair: (-pair[0], pair[1].id))
+    return [
+        {
+            **doc.as_dict(),
+            "score": round(score, 4),
+            "similarity": round(1 - math.exp(-score / 4), 3),
+        }
+        for score, doc in scored[:top_k]
+    ]
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("query")
+    parser.add_argument("--code", action="append", default=[])
+    args = parser.parse_args()
+    print(json.dumps(retrieve(args.query, args.code), ensure_ascii=False, indent=2))
+
