@@ -2343,12 +2343,15 @@
         if (Array.isArray(data.sources) && data.sources.length) {
           const evidence = document.createElement('div');
           evidence.className = 'bubble-meta';
-          const confidence = Math.round((Number(data.retrieval_confidence || 0)) * 100);
+          const confidence = data.retrieval_confidence == null
+            ? 'unavailable (reference link only)'
+            : `${Math.round(Number(data.retrieval_confidence) * 100)}%`;
           const sourceLines = data.sources.slice(0, 4).map((source) => {
             const similarity = Math.round((Number(source.similarity || 0)) * 100);
             const label = source.source || source.id || 'Source';
             const url = source.url ? ` <a href="${source.url}" target="_blank" rel="noopener">↗</a>` : '';
-            return `<div>${escapeHtml(label)} — ${similarity}%${url}</div>`;
+            const score = source.reference_only ? 'reference link only' : `${similarity}%`;
+            return `<div>${escapeHtml(label)} — ${score}${url}</div>`;
           }).join('');
           evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
           replyBubble.appendChild(evidence);

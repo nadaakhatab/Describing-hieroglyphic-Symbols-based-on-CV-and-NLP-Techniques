@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from rag.augmentation import build_context
-from rag.retrieval import retrieve as rag_retrieve
+from rag.retrieval import retrieve as rag_retrieve, terms
 
 ROOT = Path(__file__).resolve().parent
 LOGGER = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class ChatResponse(BaseModel):
     context_keys: list[str] = Field(default_factory=list)
     knowledge_loaded: bool
     sources: list[dict] = Field(default_factory=list)
-    retrieval_confidence: float = 0.0
+    retrieval_confidence: float | None = None
     suggestions: list[str] = Field(default_factory=list)
 
 
@@ -181,7 +181,7 @@ async def wikipedia_evidence(client: httpx.AsyncClient, question: str, language:
                 evidence.append({
                     "id": f"wikipedia-{lang}-{title}", "text": text,
                     "source": f"Wikipedia ({lang})", "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
-                    "similarity": 0.72,
+                    "similarity": evidence_similarity(question, text),
                 })
         return evidence
     except (httpx.HTTPError, ValueError, KeyError):
@@ -222,8 +222,19 @@ def wikipedia_reference(question: str, language: str) -> dict | None:
         "text": "Live web summary was unavailable. This is a reference link for the general background answer.",
         "source": f"Wikipedia ({lang}) reference",
         "url": url,
-        "similarity": 0.60,
+        "similarity": 0.0,
+        "reference_only": True,
     }
+
+
+def evidence_similarity(question: str, text: str) -> float:
+    """Estimate relevance from real term overlap; never use a fixed score."""
+    query_terms = terms(question)
+    text_terms = terms(text)
+    if not query_terms:
+        return 0.0
+    overlap = len(query_terms & text_terms) / len(query_terms)
+    return round(min(0.95, 0.25 + (0.70 * overlap)), 3)
 
 
 class KnowledgeBase:
@@ -361,12 +372,13 @@ class ChatService:
         web_citation = next((item for item in rag_packet["citations"] if "Wikipedia" in item["source"]), None)
         if web_citation and not re.search(r"\[S\d+\]", answer):
             answer = f"{answer.strip()}\n\nSource: [{web_citation['tag']}] {web_citation['source']}"
+        confidence = None if rag_records and all(record.get("reference_only") for record in rag_records) else rag_packet["confidence"]
         return ChatResponse(
             response=answer.strip(),
             context_keys=list(context),
             knowledge_loaded=bool(self.knowledge.records) or bool(rag_records),
             sources=[{**item, "similarity": record.get("similarity", 0.0)} for item, record in zip(rag_packet["citations"], rag_records)],
-            retrieval_confidence=rag_packet["confidence"],
+            retrieval_confidence=confidence,
             suggestions=follow_up_suggestions(request.message, language),
         )
 
