@@ -270,6 +270,25 @@ def evidence_similarity(question: str, text: str) -> float:
     return round(min(0.95, 0.25 + (0.70 * overlap)), 3)
 
 
+def offline_evidence_answer(records: list[dict], language: str) -> str:
+    """Give a useful evidence preview when Groq is temporarily rate-limited."""
+    if not records:
+        return (
+            "تعذر إنشاء إجابة الآن لأن خدمة التوليد وصلت إلى حد الاستخدام، ولا يوجد دليل محلي كافٍ."
+            if language == "Arabic" else
+            "The answer generator reached its usage limit, and no local evidence was retrieved."
+        )
+    intro = (
+        "توقّف التوليد الكامل مؤقتًا بسبب حد استخدام الخدمة. هذه الأدلة المسترجعة من الـRAG:"
+        if language == "Arabic" else
+        "Full answer generation is temporarily rate-limited. Here is the evidence retrieved by the RAG:"
+    )
+    blocks = []
+    for index, record in enumerate(records[:4], start=1):
+        blocks.append(f"[S{index}] {record.get('text', '').strip()[:500]}")
+    return intro + "\n\n" + "\n\n".join(blocks)
+
+
 class KnowledgeBase:
     """Validated local descriptions and conservative code-aware retrieval."""
 
@@ -399,7 +418,21 @@ class ChatService:
         except httpx.RequestError as exc:
             raise ChatError(503, "The AI service is temporarily unreachable.") from exc
         if result.status_code == 429:
-            raise ChatError(429, "API usage limit reached. Wait before trying again.")
+            evidence = [
+                {**citation, "excerpt": record.get("text", "")[:280]}
+                for citation, record in zip(rag_packet["citations"], rag_records)
+            ]
+            confidence = None if rag_records and all(record.get("reference_only") for record in rag_records) else rag_packet["confidence"]
+            return ChatResponse(
+                response=offline_evidence_answer(rag_records, language),
+                context_keys=list(context),
+                knowledge_loaded=bool(self.knowledge.records) or bool(rag_records),
+                sources=rag_packet["citations"],
+                retrieval_confidence=confidence,
+                suggestions=follow_up_suggestions(request.message, language),
+                retrieval_mode=retrieval_mode,
+                retrieved_evidence=evidence,
+            )
         if result.status_code in (401, 403):
             raise ChatError(503, "The server's AI credentials or permissions need attention.")
         if result.is_error:
