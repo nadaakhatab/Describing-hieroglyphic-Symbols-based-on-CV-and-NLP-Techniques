@@ -117,7 +117,7 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
     q_terms = terms(query)
     wanted = {x.casefold().strip() for x in codes}
     docs = load_documents()
-    scored: list[tuple[float, Document, float]] = []
+    scored: list[tuple[float, Document, float, float]] = []
     for doc in docs:
         if filters and any(
             str(doc.metadata.get(key, "")).casefold() != str(value).casefold()
@@ -148,10 +148,10 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
             continue
         score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus + (2 if topic_match else 0)
         if score > 0:
-            scored.append((score, doc, overlap_ratio))
+            scored.append((score, doc, overlap_ratio, identity_ratio))
     scored.sort(key=lambda pair: (-pair[0], pair[1].id))
     # Keep the first result from each source before adding useful extra matches.
-    selected: list[tuple[float, Document, float]] = []
+    selected: list[tuple[float, Document, float, float]] = []
     used_sources: set[str] = set()
     for item in scored:
         source = item[1].source.casefold()
@@ -173,7 +173,7 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
                 3,
             ),
         }
-        for score, doc, overlap_ratio in selected
+        for score, doc, overlap_ratio, identity_ratio in selected
     ]
 
 
