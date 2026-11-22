@@ -131,8 +131,8 @@ def canonical_research_query(question: str) -> str:
     """Use one shared topic query so Arabic and English get the same evidence."""
     aliases = {
         "إيزيس": "Isis", "ايزيس": "Isis", "أوزيريس": "Osiris", "اوزيريس": "Osiris",
-        "حورس": "Horus", "رمسيس": "Ramesses II", "الأهرام": "Egyptian pyramids",
-        "الاهرام": "Egyptian pyramids", "رع": "Ra",
+        "حورس": "Horus", "رمسيس": "Ramesses II", "الأهرامات": "Egyptian pyramids",
+        "الأهرام": "Egyptian pyramids", "الاهرام": "Egyptian pyramids", "رع": "Ra",
     }
     for arabic, english in aliases.items():
         if arabic in question:
@@ -341,13 +341,14 @@ class ChatService:
         if not context and prior:
             context = self.knowledge.retrieve(prior, request.glyph_codes)
         # Search the local knowledge base before asking Groq to write an answer.
-        rag_records = rag_retrieve(request.message, request.glyph_codes, top_k=6)
         language = response_language(request.message)
         research_question = canonical_research_query(request.message)
-        if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
+        # Use the same normalized topic for Arabic and English RAG searches.
+        rag_records = rag_retrieve(research_question, request.glyph_codes, top_k=6)
+        if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.55:
             web_records = await wikipedia_evidence(self.client, research_question, language)
             # Keep strong local RAG evidence and add web evidence when useful.
-            strong_local = [record for record in rag_records if record.get("similarity", 0) >= 0.75]
+            strong_local = [record for record in rag_records if record.get("similarity", 0) >= 0.55]
             rag_records = strong_local + web_records
             if not rag_records:
                 reference = wikipedia_reference(research_question, language)
