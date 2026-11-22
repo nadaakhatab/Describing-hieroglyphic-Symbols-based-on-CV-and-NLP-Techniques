@@ -2350,7 +2350,7 @@
             const url = source.url ? ` <a href="${source.url}" target="_blank" rel="noopener">↗</a>` : '';
             return `<div>${escapeHtml(label)} — ${similarity}%${url}</div>`;
           }).join('');
-          evidence.innerHTML = `<div><strong>RAG evidence</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
+          evidence.innerHTML = `<div><strong>Sources</strong> · confidence ${confidence}%</div><div style="margin-top:4px">${sourceLines}</div>`;
           replyBubble.appendChild(evidence);
         }
 

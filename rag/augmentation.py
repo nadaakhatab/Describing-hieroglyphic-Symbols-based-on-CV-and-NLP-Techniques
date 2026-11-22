@@ -27,10 +27,10 @@ def build_context(question: str, records: list[dict], max_chars: int = 9000) -> 
         "Answer in the user's language, in a natural helpful tone. If no records are supplied, "
         "say that the local knowledge base has no verified evidence instead of guessing."
     )
-    confidence = max((float(r.get("score", 0)) for r in records), default=0.0)
+    confidence = max((float(r.get("similarity", 0)) for r in records), default=0.0)
     return {"question": question, "instructions": instructions, "context": "\n\n".join(blocks), "citations": citations,
             "retrieval_note": "Evidence found; verify interpretation against cited sources." if records else "No matching evidence found.",
-            "confidence": round(min(1.0, confidence / 12), 3)}
+            "confidence": round(confidence, 3)}
 
 
 def prompt_messages(question: str, records: list[dict]) -> list[dict]:

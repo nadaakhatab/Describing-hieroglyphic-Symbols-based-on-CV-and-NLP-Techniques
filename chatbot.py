@@ -42,7 +42,9 @@ Key Principles:
    - Phonetic transliteration (e.g. n) & Pronunciation guide
    - Sign type (uniliteral phonogram, ideogram, or determinative)
    - Cultural, religious, and historical symbolism in Ancient Egypt
-5. BILINGUAL FLUENCY: Match the user's language. Answer in natural, scholarly Arabic if asked in Arabic, or in English if asked in English, always displaying the relevant hieroglyphic characters."""
+5. LANGUAGE: Answer in the same language as the user's latest message. English question = English answer; Arabic question = Arabic answer. Do not translate the answer unless asked.
+6. STYLE: Be warm and natural. For greetings, greet the user briefly. For research questions, use a short answer followed by 3-5 clear bullets. Avoid repeated headings and do not add a section called 'What the evidence tells us' unless it helps.
+7. Always display relevant authentic hieroglyphic characters when they are known."""
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,19 @@ def keywords(text: str) -> set[str]:
         word for word in re.findall(r"[^\W\d_]+", text.casefold())
         if len(word) >= 4 and word not in STOP_WORDS
     }
+
+
+def is_greeting(text: str) -> bool:
+    """Return True for a short social greeting that needs no retrieval."""
+    normalized = re.sub(r"[^a-z\u0600-\u06ff ]", "", text.casefold()).strip()
+    return normalized in {"hi", "hello", "hey", "heyyy", "مرحبا", "اهلا", "أهلا", "السلام عليكم"}
+
+
+def response_language(text: str) -> str:
+    """Choose the answer language from the user's latest message."""
+    arabic = len(re.findall(r"[\u0600-\u06ff]", text))
+    latin = len(re.findall(r"[a-z]", text.casefold()))
+    return "Arabic" if arabic > latin else "English"
 
 
 class KnowledgeBase:
@@ -169,6 +184,9 @@ class ChatService:
     async def reply(self, request: ChatRequest) -> ChatResponse:
         if not self.settings.api_key:
             raise ChatError(503, "Groq is not configured. Add GROQ_API_KEY to the project's .env file, then restart the server.")
+        if is_greeting(request.message):
+            greeting = "أهلًا! اسأليني عن الهيروغليفية أو تاريخ مصر القديمة." if response_language(request.message) == "Arabic" else "Hello! Ask me about hieroglyphs or Ancient Egyptian history."
+            return ChatResponse(response=greeting, knowledge_loaded=bool(self.knowledge.records))
         prior = next((turn.content for turn in reversed(request.history) if turn.role == "user"), "")
         context = self.knowledge.retrieve(request.message, request.glyph_codes)
         if not context and prior:
@@ -186,6 +204,7 @@ class ChatService:
             "rag_evidence": rag_packet["context"],
             "rag_instructions": rag_packet["instructions"],
             "rag_citations": rag_packet["citations"],
+            "answer_language": response_language(request.message),
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,

@@ -97,17 +97,30 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
             "unicode consortium": 1.5,
             "thesaurus linguae aegyptiae": 1.4,
         }.get(doc.source.casefold(), 0.0)
+        if not exact and overlap == 0:
+            continue
         score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus
         if score > 0:
             scored.append((score, doc))
     scored.sort(key=lambda pair: (-pair[0], pair[1].id))
+    # Keep the first result from each source before adding useful extra matches.
+    selected: list[tuple[float, Document]] = []
+    used_sources: set[str] = set()
+    for item in scored:
+        source = item[1].source.casefold()
+        if source not in used_sources and len(selected) < top_k:
+            selected.append(item)
+            used_sources.add(source)
+    for item in scored:
+        if item not in selected and len(selected) < top_k:
+            selected.append(item)
     return [
         {
             **doc.as_dict(),
             "score": round(score, 4),
             "similarity": round(1 - math.exp(-score / 4), 3),
         }
-        for score, doc in scored[:top_k]
+        for score, doc in selected
     ]
 
 
