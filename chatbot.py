@@ -346,8 +346,9 @@ class ChatService:
         research_question = canonical_research_query(request.message)
         if not rag_records or max(record.get("similarity", 0) for record in rag_records) < 0.75:
             web_records = await wikipedia_evidence(self.client, research_question, language)
-            # Weak local matches are noise for broad questions, so replace them.
-            rag_records = web_records
+            # Keep strong local RAG evidence and add web evidence when useful.
+            strong_local = [record for record in rag_records if record.get("similarity", 0) >= 0.75]
+            rag_records = strong_local + web_records
             if not rag_records:
                 reference = wikipedia_reference(research_question, language)
                 if reference:

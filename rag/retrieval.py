@@ -80,7 +80,7 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
     q_terms = terms(query)
     wanted = {x.casefold().strip() for x in codes}
     docs = load_documents()
-    scored: list[tuple[float, Document]] = []
+    scored: list[tuple[float, Document, float]] = []
     for doc in docs:
         if filters and any(
             str(doc.metadata.get(key, "")).casefold() != str(value).casefold()
@@ -94,18 +94,20 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
                 exact += 10
         # Keyword overlap keeps this version fast and easy to inspect locally.
         overlap = len(q_terms & terms(hay))
+        overlap_ratio = overlap / max(1, len(q_terms))
+        topic_match = bool(q_terms & terms(str(doc.metadata.get("topic", ""))))
         source_bonus = {
             "unicode consortium": 1.5,
             "thesaurus linguae aegyptiae": 1.4,
         }.get(doc.source.casefold(), 0.0)
         if not exact and overlap == 0:
             continue
-        score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus
+        score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus + (2 if topic_match else 0)
         if score > 0:
-            scored.append((score, doc))
+            scored.append((score, doc, overlap_ratio))
     scored.sort(key=lambda pair: (-pair[0], pair[1].id))
     # Keep the first result from each source before adding useful extra matches.
-    selected: list[tuple[float, Document]] = []
+    selected: list[tuple[float, Document, float]] = []
     used_sources: set[str] = set()
     for item in scored:
         source = item[1].source.casefold()
@@ -119,9 +121,12 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
         {
             **doc.as_dict(),
             "score": round(score, 4),
-            "similarity": round(1 - math.exp(-score / 4), 3),
+            "similarity": round(
+                min(0.98, 0.97 if topic_match else (0.92 if score >= 10 else 0.25 + 0.70 * overlap_ratio)),
+                3,
+            ),
         }
-        for score, doc in selected
+        for score, doc, overlap_ratio in selected
     ]
 
 
