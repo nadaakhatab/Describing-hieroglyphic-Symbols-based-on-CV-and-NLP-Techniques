@@ -1620,6 +1620,8 @@
           <form id="chatForm" class="chat-composer">
             <div class="composer-row">
               <textarea id="chatInput" class="composer-input" rows="2" placeholder="Ask about ancient signs, meanings, grammar, or paste an image with Ctrl+V…"></textarea>
+              <input id="chatImageInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+              <button id="attachChatImageBtn" class="btn btn-outline" type="button" title="Attach image">🖼️</button>
               <button id="sendChatBtn" class="btn btn-primary" type="submit" style="height: 48px; padding: 0 20px;">
                 Send ➔
               </button>
@@ -2315,6 +2317,34 @@
       }
     });
 
+    const chatImageInput = document.getElementById('chatImageInput');
+    const attachChatImageBtn = document.getElementById('attachChatImageBtn');
+    let chatImageDataUrl = '';
+    attachChatImageBtn.addEventListener('click', () => chatImageInput.click());
+    chatImageInput.addEventListener('change', () => {
+      const file = chatImageInput.files && chatImageInput.files[0];
+      if (file) prepareChatImage(file);
+    });
+    chatInput.addEventListener('paste', (event) => {
+      const item = [...(event.clipboardData?.items || [])].find(entry => entry.type.startsWith('image/'));
+      if (item) prepareChatImage(item.getAsFile());
+    });
+
+    function prepareChatImage(file) {
+      if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        showToast('Please attach a JPG, PNG, or WebP image.', 'warning');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        chatImageDataUrl = reader.result;
+        attachChatImageBtn.textContent = '🖼️✓';
+        attachChatImageBtn.title = `Attached: ${file.name}`;
+        showToast('Image attached for general Groq vision analysis.', 'info');
+      };
+      reader.readAsDataURL(file);
+    }
+
     async function sendChat(question) {
       appendChatBubble('user', question);
       const submitBtn = document.getElementById('sendChatBtn');
@@ -2327,7 +2357,8 @@
           message: question,
           history: state.chatHistory.slice(-10),
           glyph_codes: state.detectedCodes.slice(0, 6),
-          image_context: state.imageContext || ''
+          image_context: state.imageContext || '',
+          image_data_url: chatImageDataUrl
         };
 
         const res = await fetch('/chat', {
@@ -2340,6 +2371,10 @@
         if (!res.ok) throw new Error(data.detail || 'Chatbot request failed.');
 
         loadingBubble.remove();
+        chatImageDataUrl = '';
+        chatImageInput.value = '';
+        attachChatImageBtn.textContent = '🖼️';
+        attachChatImageBtn.title = 'Attach image';
         const replyBubble = appendChatBubble('assistant', data.response);
 
         if (Array.isArray(data.sources) && data.sources.length) {

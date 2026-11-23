@@ -60,3 +60,23 @@ def test_mocked_provider_and_route(knowledge):
     app.include_router(create_chat_router(Settings(""), knowledge))
     with TestClient(app) as client:
         assert client.post("/chat", json={"message": "hello"}).status_code == 503
+
+
+def test_image_chat_uses_groq_vision_model(knowledge):
+    image = "data:image/png;base64,aW1hZ2U="
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["model"] == "meta-llama/llama-4-scout-17b-16e-instruct"
+        content = body["messages"][-1]["content"]
+        assert content[1]["type"] == "image_url"
+        assert content[1]["image_url"]["url"] == image
+        return httpx.Response(200, json={"choices": [{"message": {"content": "I can see a historical image."}}]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await ChatService(Settings("test-secret"), knowledge, client).reply(
+                ChatRequest(message="Analyze this image", image_data_url=image)
+            )
+
+    assert asyncio.run(run()).response == "I can see a historical image."

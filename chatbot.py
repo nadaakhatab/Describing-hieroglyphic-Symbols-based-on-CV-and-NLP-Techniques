@@ -56,6 +56,7 @@ class Settings:
 
     api_key: str = field(repr=False)
     model: str = "openai/gpt-oss-20b"
+    vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     data_path: Path = ROOT / "data" / "semantic_meaning.json"
 
     @classmethod
@@ -65,10 +66,11 @@ class Settings:
         if key == "your_groq_api_key_here":
             key = ""
         model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
+        vision_model = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
         if not model:
             raise ValueError("GROQ_MODEL must not be empty.")
         path = Path(os.getenv("GLYPH_DATA_PATH", "data/semantic_meaning.json"))
-        return cls(key, model, path if path.is_absolute() else ROOT / path)
+        return cls(key, model, vision_model, path if path.is_absolute() else ROOT / path)
 
 
 class Turn(BaseModel):
@@ -83,6 +85,14 @@ class ChatRequest(BaseModel):
     history: list[Turn] = Field(default_factory=list, max_length=10)
     glyph_codes: list[str] = Field(default_factory=list, max_length=6)
     image_context: str = Field(default="", max_length=4000)
+    image_data_url: str = Field(default="", max_length=8_000_000)
+
+    @field_validator("image_data_url")
+    @classmethod
+    def validate_image_data_url(cls, value: str) -> str:
+        if value and not re.fullmatch(r"data:image/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+", value):
+            raise ValueError("image_data_url must be a JPEG, PNG, or WebP data URL.")
+        return value
 
     @field_validator("glyph_codes")
     @classmethod
@@ -381,7 +391,7 @@ class ChatService:
             retrieval_mode = "web reference only"
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend(turn.model_dump() for turn in request.history)
-        messages.append({"role": "user", "content": json.dumps({
+        user_text = json.dumps({
             "question": request.message,
             "supplied_glyph_codes": request.glyph_codes,
             "image_context": request.image_context,
@@ -399,9 +409,16 @@ class ChatService:
                 {"tag": citation["tag"], "source": citation["source"], "id": citation["id"], "similarity": citation["similarity"]}
                 for citation in rag_packet["citations"]
             ],
-        }, ensure_ascii=False)})
+        }, ensure_ascii=False)
+        user_content: str | list[dict] = user_text
+        if request.image_data_url:
+            user_content = [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": request.image_data_url}},
+            ]
+        messages.append({"role": "user", "content": user_content})
         payload = {
-            "model": self.settings.model, "messages": messages,
+            "model": self.settings.vision_model if request.image_data_url else self.settings.model, "messages": messages,
             "temperature": 0.7, "max_completion_tokens": 1600,
         }
         if self.settings.model.startswith("openai/gpt-oss-"):
