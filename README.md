@@ -17,6 +17,7 @@ Create a local `.env` file with:
 ```env
 GROQ_API_KEY=your_key_here
 GROQ_MODEL=openai/gpt-oss-20b
+GROQ_VISION_MODEL=qwen/qwen3.8-27b
 GLYPH_DATA_PATH=data/semantic_meaning.json
 RAG_EMBEDDINGS_ENABLED=true
 RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2

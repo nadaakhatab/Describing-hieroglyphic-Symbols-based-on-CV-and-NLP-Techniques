@@ -67,7 +67,7 @@ def test_image_chat_uses_groq_vision_model(knowledge):
 
     def handler(request):
         body = json.loads(request.content)
-        assert body["model"] == "meta-llama/llama-4-scout-17b-16e-instruct"
+        assert body["model"] == "qwen/qwen3.8-27b"
         content = body["messages"][-1]["content"]
         assert content[1]["type"] == "image_url"
         assert content[1]["image_url"]["url"] == image

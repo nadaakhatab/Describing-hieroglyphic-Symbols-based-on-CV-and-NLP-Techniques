@@ -56,7 +56,7 @@ class Settings:
 
     api_key: str = field(repr=False)
     model: str = "openai/gpt-oss-20b"
-    vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    vision_model: str = "qwen/qwen3.8-27b"
     data_path: Path = ROOT / "data" / "semantic_meaning.json"
 
     @classmethod
@@ -66,7 +66,7 @@ class Settings:
         if key == "your_groq_api_key_here":
             key = ""
         model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
-        vision_model = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct").strip()
+        vision_model = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b").strip()
         if not model:
             raise ValueError("GROQ_MODEL must not be empty.")
         path = Path(os.getenv("GLYPH_DATA_PATH", "data/semantic_meaning.json"))
@@ -453,7 +453,9 @@ class ChatService:
         if result.status_code in (401, 403):
             raise ChatError(503, "The server's AI credentials or permissions need attention.")
         if result.is_error:
-            raise ChatError(502, "The AI service rejected the request. Check the server configuration.")
+            detail = result.text[:500].replace("\n", " ")
+            LOGGER.error("Groq rejected chat request (%s): %s", result.status_code, detail)
+            raise ChatError(502, f"The AI service rejected the request: {detail}")
         try:
             choice = result.json()["choices"][0]
             answer = choice["message"]["content"]

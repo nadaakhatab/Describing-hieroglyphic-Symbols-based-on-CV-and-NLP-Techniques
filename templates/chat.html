@@ -951,6 +951,19 @@
       box-shadow: 0 0 0 2px var(--c-terracotta-subtle);
     }
 
+    .chat-attachment {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0 0;
+      padding: 8px 10px;
+      background: var(--c-papyrus-card);
+      border: 1px solid var(--c-limestone);
+      border-radius: var(--radius-sm);
+    }
+    .chat-attachment img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--c-limestone-border); }
+    .chat-attachment button { margin-left: auto; }
+
     .composer-tags-row {
       display: flex;
       gap: 8px;
@@ -1618,6 +1631,11 @@
           </div>
 
           <form id="chatForm" class="chat-composer">
+            <div id="chatAttachment" class="chat-attachment">
+              <img id="chatAttachmentPreview" alt="Attached image preview">
+              <div><strong id="chatAttachmentName">Image attached</strong><br><small id="chatAttachmentMeta">Ready for Groq vision analysis</small></div>
+              <button id="removeChatImageBtn" class="btn btn-outline" type="button" style="padding:4px 8px;">✕</button>
+            </div>
             <div class="composer-row">
               <textarea id="chatInput" class="composer-input" rows="2" placeholder="Ask about ancient signs, meanings, grammar, or paste an image with Ctrl+V…"></textarea>
               <input id="chatImageInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
@@ -2319,7 +2337,13 @@
 
     const chatImageInput = document.getElementById('chatImageInput');
     const attachChatImageBtn = document.getElementById('attachChatImageBtn');
+    const chatAttachment = document.getElementById('chatAttachment');
+    const chatAttachmentPreview = document.getElementById('chatAttachmentPreview');
+    const chatAttachmentName = document.getElementById('chatAttachmentName');
+    const chatAttachmentMeta = document.getElementById('chatAttachmentMeta');
+    const removeChatImageBtn = document.getElementById('removeChatImageBtn');
     let chatImageDataUrl = '';
+    let chatImageFile = null;
     attachChatImageBtn.addEventListener('click', () => chatImageInput.click());
     chatImageInput.addEventListener('change', () => {
       const file = chatImageInput.files && chatImageInput.files[0];
@@ -2329,6 +2353,7 @@
       const item = [...(event.clipboardData?.items || [])].find(entry => entry.type.startsWith('image/'));
       if (item) prepareChatImage(item.getAsFile());
     });
+    removeChatImageBtn.addEventListener('click', clearChatImage);
 
     function prepareChatImage(file) {
       if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
@@ -2338,6 +2363,11 @@
       const reader = new FileReader();
       reader.onload = () => {
         chatImageDataUrl = reader.result;
+        chatImageFile = file;
+        chatAttachmentPreview.src = chatImageDataUrl;
+        chatAttachmentName.textContent = file.name || 'Attached image';
+        chatAttachmentMeta.textContent = `${(file.size / 1024).toFixed(1)} KB · ready for Groq vision analysis`;
+        chatAttachment.style.display = 'flex';
         attachChatImageBtn.textContent = '🖼️✓';
         attachChatImageBtn.title = `Attached: ${file.name}`;
         showToast('Image attached for general Groq vision analysis.', 'info');
@@ -2345,8 +2375,25 @@
       reader.readAsDataURL(file);
     }
 
+    function clearChatImage() {
+      chatImageDataUrl = '';
+      chatImageFile = null;
+      chatImageInput.value = '';
+      chatAttachmentPreview.removeAttribute('src');
+      chatAttachment.style.display = 'none';
+      attachChatImageBtn.textContent = '🖼️';
+      attachChatImageBtn.title = 'Attach image';
+    }
+
     async function sendChat(question) {
-      appendChatBubble('user', question);
+      const userBubble = appendChatBubble('user', question);
+      if (chatImageDataUrl) {
+        const image = document.createElement('img');
+        image.src = chatImageDataUrl;
+        image.alt = 'Attached image';
+        image.style.cssText = 'display:block;max-width:220px;max-height:180px;object-fit:contain;border-radius:8px;margin-top:8px;';
+        userBubble.appendChild(image);
+      }
       const submitBtn = document.getElementById('sendChatBtn');
       submitBtn.disabled = true;
 
@@ -2371,10 +2418,7 @@
         if (!res.ok) throw new Error(data.detail || 'Chatbot request failed.');
 
         loadingBubble.remove();
-        chatImageDataUrl = '';
-        chatImageInput.value = '';
-        attachChatImageBtn.textContent = '🖼️';
-        attachChatImageBtn.title = 'Attach image';
+        clearChatImage();
         const replyBubble = appendChatBubble('assistant', data.response);
 
         if (Array.isArray(data.sources) && data.sources.length) {
