@@ -458,13 +458,22 @@ class ChatService:
             raise ChatError(502, f"The AI service rejected the request: {detail}")
         try:
             choice = result.json()["choices"][0]
-            answer = choice["message"]["content"]
+            message = choice["message"]
+            answer = message.get("content")
+            if isinstance(answer, list):
+                answer = "\n".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in answer
+                )
+            if not isinstance(answer, str) or not answer.strip():
+                answer = message.get("reasoning_content", "")
             if not isinstance(answer, str) or not answer.strip():
                 raise ValueError("Empty answer")
             if choice.get("finish_reason") == "length":
                 answer += "\n\n[Response limit reached; ask for a shorter explanation.]"
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ChatError(502, "The AI service returned an invalid response.") from exc
+            LOGGER.error("Unexpected Groq response: %s", result.text[:1000])
+            raise ChatError(502, "The AI service returned an empty or unsupported response. Try a shorter question or another image.") from exc
         # Return both the answer and the evidence details needed by the UI.
         web_citation = next((item for item in rag_packet["citations"] if "Wikipedia" in item["source"]), None)
         if web_citation and not re.search(r"\[S\d+\]", answer):
