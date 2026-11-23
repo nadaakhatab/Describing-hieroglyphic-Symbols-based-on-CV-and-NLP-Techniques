@@ -18,9 +18,26 @@ Create a local `.env` file with:
 GROQ_API_KEY=your_key_here
 GROQ_MODEL=openai/gpt-oss-20b
 GLYPH_DATA_PATH=data/semantic_meaning.json
+RAG_EMBEDDINGS_ENABLED=true
+RAG_EMBEDDING_MODEL=all-MiniLM-L6-v2
 ```
 
 The key stays on the server and is never sent to the browser.
+
+The RAG uses a persistent local ChromaDB vector store when
+`RAG_EMBEDDINGS_ENABLED=true`. The first request downloads
+`all-MiniLM-L6-v2`, creates normalized embeddings, and stores them in
+`rag/data/.chroma/`. Later requests reuse the collection. If ChromaDB or
+embeddings are unavailable, keyword retrieval remains as a safe fallback.
+The generator uses `openai/gpt-oss-20b` through Groq with temperature `0.7`.
+The semantic retriever uses the `all-MiniLM-L6-v2` SentenceTransformers
+embedding model. Retrieval can be evaluated with:
+
+```powershell
+python -m rag.evaluate --dataset rag/data/evaluation.jsonl --k 1 3 5
+```
+
+The evaluation reports Precision@K, Recall@K, Hit Rate@K, MRR@K, and nDCG@K.
 
 ## Project map
 

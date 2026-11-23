@@ -402,7 +402,7 @@ class ChatService:
         }, ensure_ascii=False)})
         payload = {
             "model": self.settings.model, "messages": messages,
-            "temperature": 0.2, "max_completion_tokens": 1600,
+            "temperature": 0.7, "max_completion_tokens": 1600,
         }
         if self.settings.model.startswith("openai/gpt-oss-"):
             payload.update(reasoning_effort="low", reasoning_format="hidden")

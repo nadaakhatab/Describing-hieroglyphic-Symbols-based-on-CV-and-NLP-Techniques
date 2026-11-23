@@ -1,4 +1,4 @@
-"""Dependency-light hybrid retrieval for the Kemet Studio knowledge base."""
+"""Hybrid lexical + semantic retrieval for the Kemet Studio knowledge base."""
 from __future__ import annotations
 
 import json
@@ -7,16 +7,37 @@ import re
 from dataclasses import dataclass, asdict
 from functools import lru_cache
 from pathlib import Path
+import os
 
 try:
     import fitz  # PyMuPDF; optional until the book index is needed.
 except ImportError:
     fitz = None
 
+if os.getenv("RAG_EMBEDDINGS_ENABLED", "false").casefold() == "true":
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        SentenceTransformer = None
+    try:
+        import chromadb
+    except ImportError:
+        chromadb = None
+else:
+    np, SentenceTransformer, chromadb = None, None, None
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DATA = ROOT / "data" / "semantic_meaning.json"
 RAG_DATA = Path(__file__).resolve().parent / "data"
 BOOK_DIR = RAG_DATA / "books"
+VECTOR_DIR = RAG_DATA / ".chroma"
+EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDINGS_ENABLED = os.getenv("RAG_EMBEDDINGS_ENABLED", "false").casefold() == "true"
+LOAD_BOOKS = os.getenv("RAG_LOAD_BOOKS", "true").casefold() == "true"
 STOP = {
     "what", "does", "mean", "tell", "about", "this", "that", "with", "from",
     "explain", "symbol", "glyph", "hieroglyph", "egyptian", "ancient", "who",
@@ -46,7 +67,7 @@ def terms(text: str) -> set[str]:
 
 def load_book_documents() -> list[Document]:
     """Read local books page by page when PyMuPDF is installed."""
-    if fitz is None or not BOOK_DIR.exists():
+    if not LOAD_BOOKS or fitz is None or not BOOK_DIR.exists():
         return []
     documents: list[Document] = []
     for path in sorted(BOOK_DIR.glob("*.pdf")):
@@ -111,14 +132,71 @@ def load_documents() -> tuple[Document, ...]:
     return tuple(docs)
 
 
+class LocalVectorStore:
+    """Persistent Chroma vector store with a lightweight fallback."""
+    def __init__(self, documents: tuple[Document, ...]):
+        self.documents, self.model, self.matrix, self.collection = documents, None, None, None
+        self.enabled = EMBEDDINGS_ENABLED and chromadb is not None and SentenceTransformer is not None
+
+    def _load_or_build(self) -> bool:
+        if not self.enabled:
+            return False
+        VECTOR_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            self.model = SentenceTransformer(EMBEDDING_MODEL)
+            client = chromadb.PersistentClient(path=str(VECTOR_DIR))
+            self.collection = client.get_or_create_collection(
+                name="kemet_documents",
+                metadata={"hnsw:space": "cosine"},
+            )
+            ids = [doc.id for doc in self.documents]
+            current = self.collection.count()
+            if current != len(ids):
+                self.collection.delete(ids=self.collection.get().get("ids", []))
+                self.collection.add(
+                    ids=ids,
+                    documents=[f"{doc.source}\n{doc.text}" for doc in self.documents],
+                    metadatas=[{"source": doc.source, **{k: str(v) for k, v in doc.metadata.items()}} for doc in self.documents],
+                    embeddings=self.model.encode(
+                        [f"{doc.source}\n{doc.text}" for doc in self.documents],
+                        normalize_embeddings=True,
+                        show_progress_bar=False,
+                    ).tolist(),
+                )
+            return True
+        except Exception:
+            self.model, self.matrix, self.collection = None, None, None
+            return False
+
+    def search(self, query: str, limit: int = 12) -> dict[int, float]:
+        if self.collection is None and not self._load_or_build():
+            return {}
+        vector = self.model.encode([query], normalize_embeddings=True, show_progress_bar=False)[0]
+        result = self.collection.query(query_embeddings=[vector.tolist()], n_results=limit, include=["distances"])
+        ids = result.get("ids", [[]])[0]
+        distances = result.get("distances", [[]])[0]
+        index_by_id = {doc.id: index for index, doc in enumerate(self.documents)}
+        return {
+            index_by_id[doc_id]: max(0.0, 1.0 - float(distance))
+            for doc_id, distance in zip(ids, distances)
+            if doc_id in index_by_id
+        }
+
+
+@lru_cache(maxsize=1)
+def vector_store() -> LocalVectorStore:
+    return LocalVectorStore(load_documents())
+
+
 def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters: dict | None = None) -> list[dict]:
-    # Exact Gardiner or Unicode matches get the strongest ranking signal.
+    # Semantic search catches paraphrases; lexical search preserves exact codes.
     codes = codes or []
     q_terms = terms(query)
     wanted = {x.casefold().strip() for x in codes}
     docs = load_documents()
+    semantic_scores = vector_store().search(query, limit=max(12, top_k * 2))
     scored: list[tuple[float, Document, float, float]] = []
-    for doc in docs:
+    for index, doc in enumerate(docs):
         if filters and any(
             str(doc.metadata.get(key, "")).casefold() != str(value).casefold()
             for key, value in filters.items()
@@ -144,11 +222,13 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
             "unicode consortium": 1.5,
             "thesaurus linguae aegyptiae": 1.4,
         }.get(doc.source.casefold(), 0.0)
-        if not exact and overlap == 0:
+        semantic_similarity = semantic_scores.get(index, 0.0)
+        if not exact and overlap == 0 and semantic_similarity < 0.30:
             continue
-        score = exact + overlap / max(1, math.sqrt(len(q_terms))) + source_bonus + (2 if topic_match else 0)
+        lexical_score = overlap / max(1, math.sqrt(len(q_terms)))
+        score = exact + (0.65 * semantic_similarity) + (0.35 * lexical_score) + source_bonus + (2 if topic_match else 0)
         if score > 0:
-            scored.append((score, doc, overlap_ratio, identity_ratio))
+            scored.append((score, doc, overlap_ratio, identity_ratio, semantic_similarity))
     scored.sort(key=lambda pair: (-pair[0], pair[1].id))
     # Keep the first result from each source before adding useful extra matches.
     selected: list[tuple[float, Document, float, float]] = []
@@ -168,12 +248,12 @@ def retrieve(query: str, codes: list[str] | None = None, top_k: int = 6, filters
             "similarity": round(
                 min(
                     0.98,
-                    0.92 if score >= 10 else 0.20 + (0.45 * identity_ratio) + (0.45 * overlap_ratio),
+                    0.92 if score >= 10 else max(semantic_similarity, 0.20 + (0.30 * identity_ratio) + (0.30 * overlap_ratio)),
                 ),
                 3,
             ),
         }
-        for score, doc, overlap_ratio, identity_ratio in selected
+        for score, doc, overlap_ratio, identity_ratio, semantic_similarity in selected
     ]
 
 
